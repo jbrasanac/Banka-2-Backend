@@ -6,79 +6,61 @@ import org.springframework.stereotype.Component;
 public class PasswordResetEmailTemplate {
 
     public String buildSubject() {
-        return "Password reset request";
+        return "Zahtev za reset lozinke – Banka 2";
     }
 
     public String buildBody(String resetLink) {
         return """
                 <!DOCTYPE html>
-                <html lang="en">
+                <html lang="sr">
                 <head>
                     <meta charset="UTF-8">
-                    <title>Password reset request</title>
-                    <style>
-                        .primary-button {
-                            display: inline-block;
-                            padding: 12px 24px;
-                            background: linear-gradient(135deg,#1d4ed8,#4338ca);
-                            color: #ffffff !important;
-                            text-decoration: none;
-                            border-radius: 999px;
-                            font-size: 14px;
-                            font-weight: 600;
-                            letter-spacing: 0.04em;
-                            text-transform: uppercase;
-                        }
-
-                        .primary-button:hover {
-                            background: linear-gradient(135deg,#2563eb,#4f46e5);
-                        }
-                    </style>
+                    <title>Reset lozinke</title>
                 </head>
-                <body style="margin:0;padding:0;background-color:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-                <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:transparent;padding:32px 0;">
+                <body style="margin:0;padding:0;background-color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="padding:32px 0;">
                     <tr>
                         <td align="center">
-                            <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 18px 45px rgba(15,23,42,0.32);border:1px solid #e5e7eb;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 20px 50px rgba(99,102,241,0.18);border:1px solid #e5e7eb;">
                                 <tr>
-                                    <td style="background:linear-gradient(135deg,#1d4ed8,#4338ca);padding:18px 24px;color:#e5e7eb;text-align:center;">
-                                        <h1 style="margin:0;font-size:20px;font-weight:600;letter-spacing:0.02em;">Banka 2 – Security notice</h1>
+                                    <td style="background:linear-gradient(135deg,#6366f1,#7c3aed);padding:28px 24px;text-align:center;">
+                                        <p style="margin:0 0 4px 0;font-size:13px;font-weight:500;color:rgba(255,255,255,0.7);letter-spacing:0.08em;text-transform:uppercase;">Banka 2</p>
+                                        <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.01em;">Reset lozinke</h1>
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td style="padding:24px;text-align:center;">
-                                        <p style="margin:0 0 16px 0;font-size:14px;color:#4b5563;">Hi,</p>
-                                        <p style="margin:0 0 16px 0;font-size:14px;color:#4b5563;">
-                                            We received a request to reset the password for your Banka 2 account.
+                                    <td style="padding:32px 28px;text-align:center;">
+                                        <p style="margin:0 0 16px 0;font-size:15px;color:#374151;font-weight:600;">Zdravo,</p>
+                                        <p style="margin:0 0 16px 0;font-size:14px;color:#4b5563;line-height:1.6;">
+                                            Primili smo zahtev za resetovanje lozinke vašeg Banka 2 naloga.
                                         </p>
-                                        <p style="margin:0 0 20px 0;font-size:14px;color:#4b5563;">
-                                            Click the button below to open the page where you can set a new password. The link expires in 30 minutes and can only be used once.
+                                        <p style="margin:0 0 24px 0;font-size:13px;color:#6b7280;line-height:1.5;">
+                                            Kliknite na dugme ispod da otvorite stranicu za postavljanje nove lozinke. Link ističe za 30 minuta i može se koristiti samo jednom.
                                         </p>
-                                        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;width:100%%;text-align:center;">
+                                        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 28px auto;">
                                             <tr>
-                                                <td>
-                                                    <a href="%s"
-                                                       class="primary-button">
-                                                        Reset password
+                                                <td style="border-radius:10px;background:linear-gradient(135deg,#6366f1,#7c3aed);">
+                                                    <a href="%s" style="display:inline-block;padding:14px 36px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;letter-spacing:0.03em;">
+                                                        Resetujte lozinku
                                                     </a>
                                                 </td>
                                             </tr>
                                         </table>
-                                        <p style="margin:0 0 12px 0;font-size:13px;color:#6b7280;">
-                                            If the button above does not work, copy and paste this link into your browser:
+                                        <p style="margin:0 0 10px 0;font-size:12px;color:#9ca3af;">
+                                            Ako dugme ne radi, kopirajte i nalepite ovaj link u pretraživač:
                                         </p>
-                                        <p style="margin:0 0 20px 0;font-size:12px;color:#1d4ed8;word-break:break-all;">
+                                        <p style="margin:0 0 20px 0;font-size:12px;color:#6366f1;word-break:break-all;">
                                             %s
                                         </p>
-                                        <p style="margin:0 0 0 0;font-size:12px;color:#9ca3af;">
-                                            If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.
+                                        <p style="margin:0;font-size:12px;color:#9ca3af;">
+                                            Ako niste tražili reset lozinke, slobodno ignorišite ovaj email. Vaša lozinka ostaje nepromenjena.
                                         </p>
                                     </td>
                                 </tr>
                                 <tr>
                                     <td style="padding:16px 24px;border-top:1px solid #e5e7eb;background-color:#f9fafb;">
                                         <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">
-                                            This is an automated message from Banka 2. The reset link above opens the page to set a new password (confirm flow). Please do not reply to this email.
+                                            Ovo je automatska poruka od Banka 2. Molimo ne odgovarajte na ovaj email.
                                         </p>
                                     </td>
                                 </tr>
