@@ -37,6 +37,9 @@ public class Payment {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;
 
+    @Column(nullable = false, precision = 19, scale = 4)
+    private BigDecimal fee = BigDecimal.ZERO;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "currency_id", nullable = false)
     private Currency currency;

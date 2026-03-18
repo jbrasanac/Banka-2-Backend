@@ -32,7 +32,7 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     public List<TransactionResponseDto> recordPaymentSettlement(Payment payment, Account toAccount, User initiatedBy) {
         Account fromAccount = payment.getFromAccount();
-        BigDecimal amount = orZero(payment.getAmount());
+        BigDecimal amount = payment.getAmount();
 
         Transaction debitTx = Transaction.builder()
                 .account(fromAccount)

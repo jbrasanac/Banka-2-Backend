@@ -24,6 +24,9 @@ import rs.raf.banka2_bek.payment.service.PaymentService;
 import rs.raf.banka2_bek.transaction.service.TransactionService;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -31,11 +34,30 @@ import java.util.UUID;
 public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;
+    //TODO: zameniti import
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
     private final TransactionService transactionService;
     private static final int ORDER_NUMBER_MAX_RETRIES = 5;
 
+    //TODO: skloniti ovo kada se uvede pravi FX servis
+    private static final Set<String> SUPPORTED = Set.of(
+            "EUR", "CHF", "USD", "GBP", "JPY", "CAD", "AUD", "RSD"
+    );
+
+    // 1 unit of key currency = value in RSD
+    private static final Map<String, BigDecimal> TO_RSD = Map.of(
+            "RSD", new BigDecimal("1.0000"),
+            "EUR", new BigDecimal("117.2000"),
+            "CHF", new BigDecimal("122.8000"),
+            "USD", new BigDecimal("108.5000"),
+            "GBP", new BigDecimal("137.4000"),
+            "JPY", new BigDecimal("0.7300"),
+            "CAD", new BigDecimal("80.1000"),
+            "AUD", new BigDecimal("71.6000")
+    );
+
+    //Trenutno podrzava samo placanja u okviru iste banke
     @Override
     @Transactional
     public PaymentResponseDto createPayment(CreatePaymentRequestDto request) {
@@ -55,10 +77,6 @@ public class PaymentServiceImpl implements PaymentService {
 
         if (fromAccount.getId().equals(toAccount.getId())) {
             throw new IllegalArgumentException("Source and destination accounts must be different.");
-        }
-
-        if (!fromAccount.getCurrency().getId().equals(toAccount.getCurrency().getId())) {
-            throw new IllegalArgumentException("Cross-currency payments are not supported in this flow.");
         }
 
         User client = getAuthenticatedClient();
@@ -83,18 +101,27 @@ public class PaymentServiceImpl implements PaymentService {
             throw new IllegalArgumentException("Insufficient funds in the source account.");
         }
 
-        fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
-        fromAccount.setAvailableBalance(fromAccount.getAvailableBalance().subtract(amount));
+        BigDecimal transactionFee = BigDecimal.ZERO;
+        BigDecimal exRate = BigDecimal.ONE;
+
+        if (!fromAccount.getCurrency().getId().equals(toAccount.getCurrency().getId())) {
+            transactionFee = amount.multiply(new BigDecimal("0.005"));
+            exRate = getFxRate(fromAccount.getCurrency().getCode(), toAccount.getCurrency().getCode());
+        }
+
+        fromAccount.setBalance(fromAccount.getBalance().subtract(amount.add(transactionFee)));
+        fromAccount.setAvailableBalance(fromAccount.getAvailableBalance().subtract(amount.add(transactionFee)));
         fromAccount.setDailySpending(fromAccount.getDailySpending().add(amount));
         fromAccount.setMonthlySpending(fromAccount.getMonthlySpending().add(amount));
 
-        toAccount.setBalance(toAccount.getBalance().add(amount));
-        toAccount.setAvailableBalance(toAccount.getAvailableBalance().add(amount));
+        toAccount.setBalance(toAccount.getBalance().add(amount.multiply(exRate)));
+        toAccount.setAvailableBalance(toAccount.getAvailableBalance().add(amount.multiply(exRate)));
 
         Payment base = Payment.builder()
                 .fromAccount(fromAccount)
                 .toAccountNumber(request.getToAccount())
                 .amount(amount)
+                .fee(transactionFee)
                 .currency(fromAccount.getCurrency())
                 .paymentCode(request.getPaymentCode())
                 .referenceNumber(request.getReferenceNumber())
@@ -148,6 +175,23 @@ public class PaymentServiceImpl implements PaymentService {
         return getPayments(pageable);
     }
 
+    private BigDecimal getFxRate(String from, String to) {
+        String f = from.toUpperCase();
+        String t = to.toUpperCase();
+
+        if (!SUPPORTED.contains(f) || !SUPPORTED.contains(t)) {
+            throw new IllegalArgumentException("Unsupported currency pair: " + from + "/" + to);
+        }
+        if (f.equals(t)) return BigDecimal.ONE;
+
+        BigDecimal fromToRsd = TO_RSD.get(f);
+        BigDecimal toToRsd = TO_RSD.get(t);
+
+        // (from -> RSD) / (to -> RSD) = from -> to
+        return fromToRsd.divide(toToRsd, 10, RoundingMode.HALF_UP);
+    }
+
+
     private PaymentResponseDto toResponse(Payment payment) {
         return PaymentResponseDto.builder()
                 .id(payment.getId())
@@ -155,6 +199,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .fromAccount(payment.getFromAccount() != null ? payment.getFromAccount().getAccountNumber() : null)
                 .toAccount(payment.getToAccountNumber())
                 .amount(payment.getAmount())
+                .fee(payment.getFee())
                 .paymentCode(payment.getPaymentCode())
                 .referenceNumber(payment.getReferenceNumber())
                 .description(payment.getPurpose())

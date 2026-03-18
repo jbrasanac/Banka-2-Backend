@@ -15,6 +15,7 @@ public class PaymentResponseDto {
     String fromAccount;
     String toAccount;
     BigDecimal amount;
+    BigDecimal fee;
     String paymentCode;
     String referenceNumber;
     String description;
