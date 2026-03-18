@@ -6,7 +6,6 @@ import lombok.*;
 import rs.raf.banka2_bek.account.model.Account;
 import rs.raf.banka2_bek.auth.model.User;
 import rs.raf.banka2_bek.currency.model.Currency;
-import rs.raf.banka2_bek.client.model.Client;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

@@ -8,8 +8,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import rs.raf.banka2_bek.account.model.Account;
+import rs.raf.banka2_bek.auth.model.User;
 import rs.raf.banka2_bek.currency.model.Currency;
-import rs.raf.banka2_bek.client.model.Client;
 import rs.raf.banka2_bek.employee.model.Employee;
 import rs.raf.banka2_bek.payment.model.Payment;
 import rs.raf.banka2_bek.transfer.model.Transfer;
@@ -44,7 +44,7 @@ public class Transaction {
     // Ko je inicirao transakciju — tačno jedno od ova dva mora biti postavljeno
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id", updatable = false)
-    private Client client;
+    private User client;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "employee_id", updatable = false)

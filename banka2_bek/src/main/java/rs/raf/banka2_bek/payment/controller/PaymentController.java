@@ -2,14 +2,17 @@ package rs.raf.banka2_bek.payment.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import rs.raf.banka2_bek.payment.dto.CreatePaymentRequestDto;
+import rs.raf.banka2_bek.payment.dto.PaymentListItemDto;
 import rs.raf.banka2_bek.payment.dto.PaymentResponseDto;
 import rs.raf.banka2_bek.payment.service.PaymentService;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/payments")
@@ -24,8 +27,10 @@ public class PaymentController {
     }
 
     @GetMapping
-    public ResponseEntity<List<PaymentResponseDto>> getPayments() {
-        return ResponseEntity.ok(paymentService.getPayments());
+    public ResponseEntity<Page<PaymentListItemDto>> getPayments(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
+    ) {
+        return ResponseEntity.ok(paymentService.getPayments(pageable));
     }
 
     @GetMapping("/{paymentId}")
@@ -34,8 +39,10 @@ public class PaymentController {
     }
 
     @GetMapping("/history")
-    public ResponseEntity<List<PaymentResponseDto>> getPaymentHistory() {
-        return ResponseEntity.ok(paymentService.getPaymentHistory());
+    public ResponseEntity<Page<PaymentListItemDto>> getPaymentHistory(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
+    ) {
+        return ResponseEntity.ok(paymentService.getPaymentHistory(pageable));
     }
 }
 
