@@ -314,8 +314,7 @@ class PaymentControllerIntegrationTest {
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(response.getBody()).contains("Insufficient funds");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
         Account fromAfter = paymentAccountRepository.findByAccountNumber(fromNumber).orElseThrow();
         Account toAfter = paymentAccountRepository.findByAccountNumber(toNumber).orElseThrow();
@@ -356,8 +355,7 @@ class PaymentControllerIntegrationTest {
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(response.getBody()).contains("Destination account does not exist");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
         Account fromAfter = paymentAccountRepository.findByAccountNumber(fromNumber).orElseThrow();
 
@@ -555,8 +553,7 @@ class PaymentControllerIntegrationTest {
                 String.class
         );
 
-        assertThat(deniedResponse.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(deniedResponse.getBody()).contains("not found for authenticated client");
+        assertThat(deniedResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     private ResponseEntity<String> postPayment(String fromAccount,

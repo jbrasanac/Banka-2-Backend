@@ -165,13 +165,28 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.11</version>
+                <version>0.8.13</version>
+                <configuration>
+                    <excludes>
+                        <exclude>sun/**</exclude>
+                        <exclude>jdk/**</exclude>
+                        <exclude>com/sun/**</exclude>
+                    </excludes>
+                </configuration>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
                         <goals>
                             <goal>prepare-agent</goal>
                         </goals>
+                        <configuration>
+                            <inclBootstrapClasses>false</inclBootstrapClasses>
+                            <excludes>
+                                <exclude>sun.*</exclude>
+                                <exclude>jdk.*</exclude>
+                                <exclude>com.sun.*</exclude>
+                            </excludes>
+                        </configuration>
                     </execution>
                     <execution>
                         <id>report</id>

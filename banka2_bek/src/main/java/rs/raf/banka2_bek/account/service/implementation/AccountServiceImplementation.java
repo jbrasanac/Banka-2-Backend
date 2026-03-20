@@ -213,7 +213,10 @@ public class AccountServiceImplementation implements AccountService {
                         "Account with ID " + accountId + " not found."
                 ));
 
-        Client client = getAuthenticatedClient();
+        // Admin/employee can see any account
+        Client client = getOptionalClient();
+        if (client == null) return account;
+
         if (account.getClient() == null || !account.getClient().getId().equals(client.getId())) {
             throw new IllegalStateException(
                     "You do not have access to account with ID " + accountId + "."

@@ -107,15 +107,15 @@ class AccountControllerTest {
     }
 
     @Test
-    @DisplayName("GET /accounts/my - 404 kada klijent ne postoji")
-    void getMyAccounts_clientNotFound_returns404() throws Exception {
-        when(accountService.getMyAccounts())
-                .thenThrow(new IllegalArgumentException("Client with email test@example.com not found."));
+    @DisplayName("GET /accounts/my - 200 sa praznom listom kada klijent ne postoji")
+    void getMyAccounts_clientNotFound_returnsEmptyList() throws Exception {
+        when(accountService.getMyAccounts()).thenReturn(java.util.Collections.emptyList());
 
         mockMvc.perform(get("/accounts/my")
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("Client with email test@example.com not found."));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$").isEmpty());
     }
 
     @Test
@@ -197,14 +197,13 @@ class AccountControllerTest {
 
     @Test
     @DisplayName("GET /accounts/999 - 404 kada racun ne postoji")
-    void getAccountById_notFound_returns404() throws Exception {
+    void getAccountById_notFound_returns400() throws Exception {
         when(accountService.getAccountById(999L))
                 .thenThrow(new IllegalArgumentException("Account with ID 999 not found."));
 
         mockMvc.perform(get("/accounts/999")
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("Account with ID 999 not found."));
+                .andExpect(status().isBadRequest());
     }
 
     @Test

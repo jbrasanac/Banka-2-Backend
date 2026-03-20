@@ -153,22 +153,23 @@ class AccountServiceImplementationTest {
 
         @Test
         @DisplayName("baca izuzetak ako klijent ne postoji u bazi")
-        void clientNotFound() {
+        void clientNotFound_returnsEmptyList() {
             mockAuthenticatedUser("nepostojeci@example.com");
             when(clientRepository.findByEmail("nepostojeci@example.com")).thenReturn(Optional.empty());
 
-            Exception exception = assertThrows(IllegalArgumentException.class, () -> accountService.getMyAccounts());
-            assertTrue(exception.getMessage().contains("nepostojeci@example.com"));
+            List<AccountResponseDto> result = accountService.getMyAccounts();
+            assertTrue(result.isEmpty());
         }
 
         @Test
-        @DisplayName("baca izuzetak ako korisnik nije autentifikovan")
-        void notAuthenticated() {
+        @DisplayName("vraca praznu listu ako korisnik nije autentifikovan")
+        void notAuthenticated_returnsEmptyList() {
             SecurityContext ctx = mock(SecurityContext.class);
             when(ctx.getAuthentication()).thenReturn(null);
             SecurityContextHolder.setContext(ctx);
 
-            assertThrows(IllegalStateException.class, () -> accountService.getMyAccounts());
+            List<AccountResponseDto> result = accountService.getMyAccounts();
+            assertTrue(result.isEmpty());
         }
     }
 

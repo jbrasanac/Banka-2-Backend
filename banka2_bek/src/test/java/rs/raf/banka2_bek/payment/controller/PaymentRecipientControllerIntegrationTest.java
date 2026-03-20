@@ -31,6 +31,7 @@ import static org.springframework.http.HttpStatus.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.BEFORE_CLASS)
 class PaymentRecipientControllerIntegrationTest {
 
     private static final String CLIENT_EMAIL = "paymentclient@test.com";
@@ -252,7 +253,8 @@ class PaymentRecipientControllerIntegrationTest {
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(FORBIDDEN);
+        // Admin now gets 200 with empty list instead of 403 (graceful handling)
+        assertThat(response.getStatusCode()).isEqualTo(OK);
     }
 
     @Test

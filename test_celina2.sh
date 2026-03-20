@@ -311,6 +311,63 @@ echo -e "\n--- 10.1 GET /transactions ---"
 api GET "/transactions?page=0&size=10" "$CLIENT_TOKEN"
 assert_status "List transactions" "200" "$STATUS" "$BODY"
 
+echo -e "${YELLOW}============================================${NC}"
+echo -e "${YELLOW}  CELINA 2: Krediti${NC}"
+echo -e "${YELLOW}============================================${NC}"
+
+echo -e "\n--- 11.1 POST /loans (klijent podnosi zahtev) ---"
+api GET "/accounts/my" "$CLIENT_TOKEN"
+FIRST_ACCOUNT=$(echo "$BODY" | grep -o '"accountNumber":"[^"]*"' | head -1 | sed 's/.*:"//' | sed 's/"//')
+api POST "/loans" "$CLIENT_TOKEN" "{\"loanType\":\"CASH\",\"interestType\":\"FIXED\",\"amount\":100000,\"currency\":\"RSD\",\"loanPurpose\":\"Renoviranje\",\"repaymentPeriod\":24,\"accountNumber\":\"$FIRST_ACCOUNT\",\"phoneNumber\":\"+381601234567\",\"employmentStatus\":\"stalno\",\"monthlyIncome\":80000}"
+assert_status "Client applies for loan" "201" "$STATUS" "$BODY"
+LOAN_REQUEST_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+
+echo -e "\n--- 11.2 GET /loans/requests (admin vidi zahteve) ---"
+api GET "/loans/requests?status=PENDING" "$ADMIN_TOKEN"
+assert_status "Admin lists loan requests" "200" "$STATUS" "$BODY"
+
+echo -e "\n--- 11.3 PATCH /loans/requests/{id}/approve ---"
+if [ -n "$LOAN_REQUEST_ID" ] && [ "$LOAN_REQUEST_ID" != "null" ]; then
+  api PATCH "/loans/requests/$LOAN_REQUEST_ID/approve" "$ADMIN_TOKEN"
+  assert_status "Admin approves loan" "200" "$STATUS" "$BODY"
+  LOAN_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+fi
+
+echo -e "\n--- 11.4 GET /loans/my (klijent vidi svoje kredite) ---"
+api GET "/loans/my" "$CLIENT_TOKEN"
+assert_status "Client views own loans" "200" "$STATUS" "$BODY"
+
+echo -e "\n--- 11.5 GET /loans/{id} (detalji kredita) ---"
+if [ -n "$LOAN_ID" ] && [ "$LOAN_ID" != "null" ]; then
+  api GET "/loans/$LOAN_ID" "$CLIENT_TOKEN"
+  assert_status "Get loan details" "200" "$STATUS" "$BODY"
+fi
+
+echo -e "\n--- 11.6 GET /loans/{id}/installments (rate) ---"
+if [ -n "$LOAN_ID" ] && [ "$LOAN_ID" != "null" ]; then
+  api GET "/loans/$LOAN_ID/installments" "$CLIENT_TOKEN"
+  assert_status "Get loan installments" "200" "$STATUS" "$BODY"
+  INSTALLMENT_COUNT=$(echo "$BODY" | grep -o '"id"' | wc -l)
+  echo "       Installments: $INSTALLMENT_COUNT (expected 24)"
+fi
+
+echo -e "\n--- 11.7 POST /loans + reject ---"
+api POST "/loans" "$CLIENT_TOKEN" "{\"loanType\":\"STUDENT\",\"interestType\":\"VARIABLE\",\"amount\":50000,\"currency\":\"RSD\",\"loanPurpose\":\"Studije\",\"repaymentPeriod\":12,\"accountNumber\":\"$FIRST_ACCOUNT\",\"phoneNumber\":\"+381601234567\"}"
+assert_status "Client applies for student loan" "201" "$STATUS" "$BODY"
+REJECT_ID=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+if [ -n "$REJECT_ID" ] && [ "$REJECT_ID" != "null" ]; then
+  api PATCH "/loans/requests/$REJECT_ID/reject" "$ADMIN_TOKEN"
+  assert_status "Admin rejects loan" "200" "$STATUS" "$BODY"
+fi
+
+echo -e "\n--- 11.8 GET /loans (admin vidi sve kredite) ---"
+api GET "/loans" "$ADMIN_TOKEN"
+assert_status "Admin lists all loans" "200" "$STATUS" "$BODY"
+
+echo -e "\n--- 11.9 Klijent ne moze da pristupi /loans/requests ---"
+api GET "/loans/requests" "$CLIENT_TOKEN"
+assert_status "Client cannot access loan requests" "403" "$STATUS" "$BODY"
+
 echo ""
 echo -e "${YELLOW}============================================${NC}"
 echo -e "${YELLOW}  REZULTATI${NC}"

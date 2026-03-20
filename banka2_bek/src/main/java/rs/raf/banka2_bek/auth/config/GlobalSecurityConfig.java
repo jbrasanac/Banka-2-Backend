@@ -51,6 +51,7 @@ public class GlobalSecurityConfig  {
                         .requestMatchers("/accounts/client/**").hasRole("ADMIN")
                         .requestMatchers("/cards/*/unblock").hasRole("ADMIN")
                         .requestMatchers("/cards/*/deactivate").hasRole("ADMIN")
+                        .requestMatchers("/loans/requests/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .formLogin(AbstractHttpConfigurer::disable)

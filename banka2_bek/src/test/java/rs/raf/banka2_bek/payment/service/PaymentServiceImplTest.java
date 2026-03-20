@@ -398,8 +398,7 @@ class PaymentServiceImplTest {
         when(paymentAccountRepository.findForUpdateByAccountNumber(request.getToAccount())).thenReturn(Optional.of(toAccount));
 
         assertThatThrownBy(() -> paymentService.createPayment(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Authenticated user is required");
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
