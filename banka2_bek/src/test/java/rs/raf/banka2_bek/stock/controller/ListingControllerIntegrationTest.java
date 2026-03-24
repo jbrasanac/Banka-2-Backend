@@ -1,5 +1,6 @@
 package rs.raf.banka2_bek.stock.controller;
 
+import lombok.NonNull;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,13 +43,16 @@ class ListingControllerIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private JwtService jwtService;
 
+    private Long aaplId;
+    private Long forexId;
+
     private static RestTemplate createRestTemplate() {
         RestTemplate rt = new RestTemplate();
         rt.setErrorHandler(new DefaultResponseErrorHandler() {
             @Override
-            public boolean hasError(ClientHttpResponse response) { return false; }
+            public boolean hasError(@NonNull ClientHttpResponse response) { return false; }
             @Override
-            public boolean hasError(HttpStatusCode statusCode) { return false; }
+            public boolean hasError(@NonNull HttpStatusCode statusCode) { return false; }
         });
         return rt;
     }
@@ -58,6 +62,8 @@ class ListingControllerIntegrationTest {
         listingRepository.deleteAll();
         userRepository.deleteAll();
         seedListings();
+        aaplId = listingRepository.findByTicker("AAPL").orElseThrow().getId();
+        forexId = listingRepository.findByTicker("EUR/USD").orElseThrow().getId();
     }
 
     private void seedListings() {
@@ -189,6 +195,75 @@ class ListingControllerIntegrationTest {
     @DisplayName("GET /listings bez tokena vraca 401/403")
     void noToken_returnsUnauthorized() {
         ResponseEntity<String> response = restTemplate.getForEntity(url("/listings?type=STOCK"), String.class);
+
+        assertThat(response.getStatusCode().value()).isIn(401, 403);
+    }
+
+    // --- GET /listings/{id} ---
+
+    @Test
+    @DisplayName("GET /listings/{id} vraca 200 sa ispravnim podacima za zaposlenog")
+    void getListingById_stock_asEmployee_returnsOk() {
+        String token = tokenForRole("emp@test.com", "EMPLOYEE");
+        ResponseEntity<String> response = get("/listings/" + aaplId, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(OK);
+        assertThat(response.getBody()).contains("AAPL");
+    }
+
+    @Test
+    @DisplayName("GET /listings/{id} vraca DTO sa izvedenim poljima")
+    void getListingById_stock_containsDerivedFields() {
+        String token = tokenForRole("emp@test.com", "EMPLOYEE");
+        ResponseEntity<String> response = get("/listings/" + aaplId, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(OK);
+        assertThat(response.getBody()).contains("changePercent");
+        assertThat(response.getBody()).contains("maintenanceMargin");
+    }
+
+    @Test
+    @DisplayName("GET /listings/{id} vraca FOREX listing za zaposlenog")
+    void getListingById_forex_asEmployee_returnsOk() {
+        String token = tokenForRole("emp@test.com", "EMPLOYEE");
+        ResponseEntity<String> response = get("/listings/" + forexId, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(OK);
+        assertThat(response.getBody()).contains("EUR/USD");
+    }
+
+    @Test
+    @DisplayName("GET /listings/{id} vraca 403 za klijenta koji pristupa FOREX listingu")
+    void getListingById_forex_asClient_returns403() {
+        String token = tokenForRole("client@test.com", "CLIENT");
+        ResponseEntity<String> response = get("/listings/" + forexId, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("GET /listings/{id} vraca 200 za klijenta koji pristupa STOCK listingu")
+    void getListingById_stock_asClient_returnsOk() {
+        String token = tokenForRole("client@test.com", "CLIENT");
+        ResponseEntity<String> response = get("/listings/" + aaplId, token);
+
+        assertThat(response.getStatusCode()).isEqualTo(OK);
+        assertThat(response.getBody()).contains("AAPL");
+    }
+
+    @Test
+    @DisplayName("GET /listings/{id} vraca 404 za nepostojeci ID")
+    void getListingById_nonExistent_returns404() {
+        String token = tokenForRole("emp@test.com", "EMPLOYEE");
+        ResponseEntity<String> response = get("/listings/999999", token);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    @DisplayName("GET /listings/{id} bez tokena vraca 401/403")
+    void getListingById_noToken_returnsUnauthorized() {
+        ResponseEntity<String> response = restTemplate.getForEntity(url("/listings/" + aaplId), String.class);
 
         assertThat(response.getStatusCode().value()).isIn(401, 403);
     }

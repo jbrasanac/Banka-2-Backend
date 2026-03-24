@@ -1,7 +1,6 @@
 package rs.raf.banka2_bek.stock.service;
 
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,12 +22,15 @@ import rs.raf.banka2_bek.stock.repository.ListingDailyPriceInfoRepository;
 import rs.raf.banka2_bek.stock.repository.ListingRepository;
 import rs.raf.banka2_bek.stock.service.implementation.ListingServiceImpl;
 
+import jakarta.persistence.EntityNotFoundException;
+
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import org.mockito.ArgumentMatchers;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -99,7 +101,7 @@ class ListingServiceImplTest {
         void lowercaseType_accepted() {
             mockAsEmployee();
             Page<Listing> page = new PageImpl<>(List.of(listing("AAPL", "Apple", ListingType.STOCK)));
-            when(listingRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+            when(listingRepository.findAll(ArgumentMatchers.<Specification<Listing>>any(), any(Pageable.class))).thenReturn(page);
 
             var result = listingService.getListings("stock", null, 0, 20);
 
@@ -125,7 +127,7 @@ class ListingServiceImplTest {
         void client_requestingStock_ok() {
             mockAsClient();
             Page<Listing> page = new PageImpl<>(List.of(listing("AAPL", "Apple", ListingType.STOCK)));
-            when(listingRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+            when(listingRepository.findAll(ArgumentMatchers.<Specification<Listing>>any(), any(Pageable.class))).thenReturn(page);
 
             var result = listingService.getListings("STOCK", null, 0, 20);
 
@@ -137,7 +139,7 @@ class ListingServiceImplTest {
         void client_requestingFutures_ok() {
             mockAsClient();
             Page<Listing> page = new PageImpl<>(List.of(listing("CLJ26", "Crude Oil", ListingType.FUTURES)));
-            when(listingRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+            when(listingRepository.findAll(ArgumentMatchers.<Specification<Listing>>any(), any(Pageable.class))).thenReturn(page);
 
             var result = listingService.getListings("FUTURES", null, 0, 20);
 
@@ -149,11 +151,102 @@ class ListingServiceImplTest {
         void employee_requestingForex_ok() {
             mockAsEmployee();
             Page<Listing> page = new PageImpl<>(List.of(listing("EUR/USD", "Euro/Dollar", ListingType.FOREX)));
-            when(listingRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+            when(listingRepository.findAll(ArgumentMatchers.<Specification<Listing>>any(), any(Pageable.class))).thenReturn(page);
 
             var result = listingService.getListings("FOREX", null, 0, 20);
 
             assertThat(result.getContent()).hasSize(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("getListingById")
+    class GetListingById {
+
+        @Test
+        @DisplayName("vraca DTO za postojeci STOCK listing (zaposleni)")
+        void existingStock_asEmployee_returnsDto() {
+            mockAsEmployee();
+            Listing l = listing("AAPL", "Apple Inc.", ListingType.STOCK);
+            when(listingRepository.findById(1L)).thenReturn(Optional.of(l));
+
+            var result = listingService.getListingById(1L);
+
+            assertThat(result.getTicker()).isEqualTo("AAPL");
+        }
+
+        @Test
+        @DisplayName("zaposleni moze da pristupi FOREX listingu")
+        void existingForex_asEmployee_returnsDto() {
+            mockAsEmployee();
+            Listing l = listing("EUR/USD", "Euro/Dollar", ListingType.FOREX);
+            when(listingRepository.findById(2L)).thenReturn(Optional.of(l));
+
+            var result = listingService.getListingById(2L);
+
+            assertThat(result.getTicker()).isEqualTo("EUR/USD");
+        }
+
+        @Test
+        @DisplayName("klijent moze da pristupi STOCK listingu")
+        void existingStock_asClient_returnsDto() {
+            mockAsClient();
+            Listing l = listing("MSFT", "Microsoft", ListingType.STOCK);
+            when(listingRepository.findById(3L)).thenReturn(Optional.of(l));
+
+            var result = listingService.getListingById(3L);
+
+            assertThat(result.getTicker()).isEqualTo("MSFT");
+        }
+
+        @Test
+        @DisplayName("klijent moze da pristupi FUTURES listingu")
+        void existingFutures_asClient_returnsDto() {
+            mockAsClient();
+            Listing l = listing("CLJ26", "Crude Oil", ListingType.FUTURES);
+            when(listingRepository.findById(4L)).thenReturn(Optional.of(l));
+
+            var result = listingService.getListingById(4L);
+
+            assertThat(result.getTicker()).isEqualTo("CLJ26");
+        }
+
+        @Test
+        @DisplayName("baca EntityNotFoundException za nepostojeci ID")
+        void nonExistent_throwsEntityNotFoundException() {
+            mockAsEmployee();
+            when(listingRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> listingService.getListingById(99L))
+                    .isInstanceOf(EntityNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("klijent sa FOREX listingom dobija IllegalStateException")
+        void forexListing_asClient_throwsIllegalStateException() {
+            mockAsClient();
+            Listing l = listing("EUR/USD", "Euro/Dollar", ListingType.FOREX);
+            when(listingRepository.findById(5L)).thenReturn(Optional.of(l));
+
+            assertThatThrownBy(() -> listingService.getListingById(5L))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("FOREX");
+        }
+
+        @Test
+        @DisplayName("vraca DTO sa izvedenim poljima")
+        void returnsDto_withDerivedFields() {
+            mockAsEmployee();
+            Listing l = listing("AAPL", "Apple Inc.", ListingType.STOCK);
+            l.setOutstandingShares(1_000_000L);
+            when(listingRepository.findById(1L)).thenReturn(Optional.of(l));
+
+            var result = listingService.getListingById(1L);
+
+            assertThat(result.getMarketCap()).isNotNull();
+            assertThat(result.getChangePercent()).isNotNull();
+            assertThat(result.getMaintenanceMargin()).isNotNull();
+            assertThat(result.getInitialMarginCost()).isNotNull();
         }
     }
 
@@ -170,7 +263,7 @@ class ListingServiceImplTest {
                     org.springframework.data.domain.PageRequest.of(0, 20),
                     1
             );
-            when(listingRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+            when(listingRepository.findAll(ArgumentMatchers.<Specification<Listing>>any(), any(Pageable.class))).thenReturn(page);
 
             var result = listingService.getListings("STOCK", null, 0, 20);
 
@@ -182,13 +275,13 @@ class ListingServiceImplTest {
         @DisplayName("prosledjuje search u Specification")
         void searchIsPassedToRepository() {
             mockAsEmployee();
-            when(listingRepository.findAll(any(Specification.class), any(Pageable.class)))
+            when(listingRepository.findAll(ArgumentMatchers.<Specification<Listing>>any(), any(Pageable.class)))
                     .thenReturn(Page.empty());
 
             listingService.getListings("STOCK", "AAPL", 0, 20);
 
             verify(listingRepository, times(1))
-                    .findAll(any(Specification.class), any(Pageable.class));
+                    .findAll(ArgumentMatchers.<Specification<Listing>>any(), any(Pageable.class));
         }
 
         @Test
@@ -198,7 +291,7 @@ class ListingServiceImplTest {
             Listing l = listing("MSFT", "Microsoft", ListingType.STOCK);
             l.setOutstandingShares(1_000_000L);
             Page<Listing> page = new PageImpl<>(List.of(l));
-            when(listingRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+            when(listingRepository.findAll(ArgumentMatchers.<Specification<Listing>>any(), any(Pageable.class))).thenReturn(page);
 
             var result = listingService.getListings("STOCK", null, 0, 20);
 
