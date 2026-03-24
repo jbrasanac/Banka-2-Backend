@@ -161,13 +161,21 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public OrderDto declineOrder(Long orderId) {
-        // TODO: Implementirati odbijanje ordera
-        // 1. Naci order po ID-ju, proveriti da je PENDING
-        // 2. Postaviti status = DECLINED
-        // 3. Postaviti approvedBy = ime ulogovanog supervizora
-        // 4. Postaviti lastModification = now()
-        // 5. Sacuvati
-        throw new UnsupportedOperationException("TODO: Implementirati declineOrder");
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found " + orderId));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new IllegalStateException("Only PENDING orders can be declined");
+        }
+
+        String supervisorName = getSupervisorName();
+
+        order.setStatus(OrderStatus.DECLINED);
+        order.setApprovedBy(supervisorName);
+        order.setLastModification(LocalDateTime.now());
+
+        Order saved = orderRepository.save(order);
+        return OrderMapper.toDto(saved);
     }
 
     @Override
