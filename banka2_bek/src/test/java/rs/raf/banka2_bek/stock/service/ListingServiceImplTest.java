@@ -344,17 +344,17 @@ class ListingServiceImplTest {
         }
 
         @Test
-        @DisplayName("DAY period poziva findByListingIdAndDate sa danasnjim datumom")
+        @DisplayName("DAY period poziva findByListingIdAndDateOrderByDateDesc sa danasnjim datumom")
         void dayPeriod_callsFindByDate() {
             mockAsEmployee();
             Listing l = listing("AAPL", "Apple", ListingType.STOCK);
             when(listingRepository.findById(1L)).thenReturn(Optional.of(l));
-            when(dailyPriceRepository.findByListingIdAndDate(eq(1L), eq(LocalDate.now())))
+            when(dailyPriceRepository.findByListingIdAndDateOrderByDateDesc(eq(1L), eq(LocalDate.now())))
                     .thenReturn(List.of(dailyPrice(l, LocalDate.now())));
 
             var result = listingService.getListingHistory(1L, "DAY");
 
-            verify(dailyPriceRepository).findByListingIdAndDate(1L, LocalDate.now());
+            verify(dailyPriceRepository).findByListingIdAndDateOrderByDateDesc(1L, LocalDate.now());
             assertThat(result).hasSize(1);
         }
 
@@ -435,7 +435,7 @@ class ListingServiceImplTest {
             LocalDate today = LocalDate.now();
             ListingDailyPriceInfo info = dailyPrice(l, today);
             when(listingRepository.findById(1L)).thenReturn(Optional.of(l));
-            when(dailyPriceRepository.findByListingIdAndDate(1L, today))
+            when(dailyPriceRepository.findByListingIdAndDateOrderByDateDesc(1L, today))
                     .thenReturn(List.of(info));
 
             var result = listingService.getListingHistory(1L, "DAY");
