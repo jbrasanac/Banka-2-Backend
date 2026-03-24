@@ -348,5 +348,147 @@ class OrderServiceImplTest {
                     "CLIENT".equals(order.getUserRole())
             ));
         }
+
+
+
+    }
+
+    @Nested
+    @DisplayName("Odobravanje ordera")
+    class ApproveOrder {
+
+        private Order pendingOrder;
+        private Employee supervisor;
+        private Listing listing;
+
+        @BeforeEach
+        void setUp() {
+            listing = new Listing();
+            listing.setId(1L);
+            listing.setTicker("AAPL");
+            listing.setListingType(ListingType.STOCK);
+            listing.setSettlementDate(null);
+
+            supervisor = new Employee();
+            supervisor.setId(10L);
+            supervisor.setFirstName("Nina");
+            supervisor.setLastName("Nikolic");
+            supervisor.setEmail("nina@bank.com");
+
+            pendingOrder = new Order();
+            pendingOrder.setId(1L);
+            pendingOrder.setStatus(OrderStatus.PENDING);
+            pendingOrder.setListing(listing);
+            pendingOrder.setUserId(5L);
+            pendingOrder.setUserRole("EMPLOYEE");
+
+            mockSecurityContext("nina@bank.com");
+            lenient().when(employeeRepository.findById(10L)).thenReturn(Optional.of(supervisor));
+
+        }
+
+        @Test
+        @DisplayName("PENDING order se uspesno odobrava")
+        void approveOrder_success() {
+            when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingOrder));
+            when(clientRepository.findByEmail("nina@bank.com")).thenReturn(Optional.empty());
+            when(employeeRepository.findByEmail("nina@bank.com")).thenReturn(Optional.of(supervisor));
+            when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            OrderDto result = orderService.approveOrder(1L);
+
+            assertEquals("APPROVED", result.getStatus());
+            assertEquals("Nina Nikolic", result.getApprovedBy());
+            assertNotNull(result.getLastModification());
+            verify(orderRepository).save(any(Order.class));
+        }
+
+        @Test
+        @DisplayName("Order ne postoji → EntityNotFoundException")
+        void approveOrder_orderNotFound() {
+            when(orderRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThrows(EntityNotFoundException.class, () -> orderService.approveOrder(99L));
+            verify(orderRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Order nije PENDING → IllegalStateException")
+        void approveOrder_orderNotPending() {
+            pendingOrder.setStatus(OrderStatus.APPROVED);
+            when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingOrder));
+
+            assertThrows(IllegalStateException.class, () -> orderService.approveOrder(1L));
+            verify(orderRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Order DECLINED → IllegalStateException")
+        void approveOrder_orderDeclined() {
+            pendingOrder.setStatus(OrderStatus.DECLINED);
+            when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingOrder));
+
+            assertThrows(IllegalStateException.class, () -> orderService.approveOrder(1L));
+            verify(orderRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Settlement date prosao → automatski DECLINED")
+        void approveOrder_settlementDatePassed_automaticallyDeclines() {
+            listing.setSettlementDate(java.time.LocalDate.now().minusDays(1));
+            when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingOrder));
+            when(clientRepository.findByEmail("nina@bank.com")).thenReturn(Optional.empty());
+            when(employeeRepository.findByEmail("nina@bank.com")).thenReturn(Optional.of(supervisor));
+            when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            OrderDto result = orderService.approveOrder(1L);
+
+            assertEquals("DECLINED", result.getStatus());
+            assertEquals("Nina Nikolic", result.getApprovedBy());
+            assertNotNull(result.getLastModification());
+        }
+
+        @Test
+        @DisplayName("Settlement date danas → APPROVED")
+        void approveOrder_settlementDateToday_approves() {
+            listing.setSettlementDate(java.time.LocalDate.now());
+            when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingOrder));
+            when(clientRepository.findByEmail("nina@bank.com")).thenReturn(Optional.empty());
+            when(employeeRepository.findByEmail("nina@bank.com")).thenReturn(Optional.of(supervisor));
+            when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            OrderDto result = orderService.approveOrder(1L);
+
+            assertEquals("APPROVED", result.getStatus());
+        }
+
+        @Test
+        @DisplayName("Settlement date u buducnosti → APPROVED")
+        void approveOrder_settlementDateFuture_approves() {
+            listing.setSettlementDate(java.time.LocalDate.now().plusDays(10));
+            when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingOrder));
+            when(clientRepository.findByEmail("nina@bank.com")).thenReturn(Optional.empty());
+            when(employeeRepository.findByEmail("nina@bank.com")).thenReturn(Optional.of(supervisor));
+            when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            OrderDto result = orderService.approveOrder(1L);
+
+            assertEquals("APPROVED", result.getStatus());
+        }
+
+        @Test
+        @DisplayName("Nema settlement date (akcije) → APPROVED")
+        void approveOrder_noSettlementDate_approves() {
+            listing.setSettlementDate(null);
+            when(orderRepository.findById(1L)).thenReturn(Optional.of(pendingOrder));
+            when(clientRepository.findByEmail("nina@bank.com")).thenReturn(Optional.empty());
+            when(employeeRepository.findByEmail("nina@bank.com")).thenReturn(Optional.of(supervisor));
+            when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            OrderDto result = orderService.approveOrder(1L);
+
+            assertEquals("APPROVED", result.getStatus());
+            assertEquals("Nina Nikolic", result.getApprovedBy());
+        }
     }
 }
