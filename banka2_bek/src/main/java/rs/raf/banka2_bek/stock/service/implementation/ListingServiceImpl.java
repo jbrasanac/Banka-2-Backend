@@ -1,5 +1,6 @@
 package rs.raf.banka2_bek.stock.service.implementation;
 
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 import rs.raf.banka2_bek.stock.dto.ListingDailyPriceDto;
 import rs.raf.banka2_bek.stock.dto.ListingDto;
 import rs.raf.banka2_bek.stock.mapper.ListingMapper;
+import rs.raf.banka2_bek.stock.model.Listing;
 import rs.raf.banka2_bek.stock.model.ListingType;
 import rs.raf.banka2_bek.stock.repository.ListingDailyPriceInfoRepository;
 import rs.raf.banka2_bek.stock.repository.ListingRepository;
@@ -18,6 +20,7 @@ import rs.raf.banka2_bek.stock.service.ListingService;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -54,11 +57,17 @@ public class   ListingServiceImpl implements ListingService {
 
     @Override
     public ListingDto getListingById(Long id) {
-        // TODO: Implementirati
-        // 1. Naci listing po ID-ju
-        // 2. Ako ne postoji, baciti exception
-        // 3. Mapirati u DTO sa svim izvedenim podacima
-        throw new UnsupportedOperationException("TODO: Implementirati getListingById");
+
+        Optional<Listing> listingOptional = listingRepository.findById(id);
+
+        if (listingOptional.isEmpty())  throw new EntityNotFoundException("Listing id: " + id + " not found.");
+
+        Listing listing = listingOptional.get();
+
+        if(isClient() && listing.getListingType() == ListingType.FOREX)
+            throw new IllegalStateException("Klijenti nemaju pristup FOREX hartijama.");
+
+        return ListingMapper.toDto(listing);
     }
 
     @Override

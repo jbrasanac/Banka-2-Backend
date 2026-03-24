@@ -31,7 +31,7 @@ public class ListingController {
             @ApiResponse(responseCode = "200", description = "Uspesno vracena stranica hartija"),
             @ApiResponse(responseCode = "400", description = "Nepoznat tip hartije",
                     content = @Content(schema = @Schema(implementation = MessageResponseDto.class))),
-            @ApiResponse(responseCode = "403", description = "Klijent pokusao da pristupi FOREX hartijama",
+            @ApiResponse(responseCode = "403", description = "Klijent pokusao da pristupi FOREX hartijama, message: \"Klijenti nemaju pristup FOREX hartijama.\" ",
                     content = @Content(schema = @Schema(implementation = MessageResponseDto.class)))
     })
     @GetMapping
@@ -42,6 +42,7 @@ public class ListingController {
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(listingService.getListings(type, search, page, size));
     }
+
 
     @Operation(summary = "Get listing by ID")
     @ApiResponses({
