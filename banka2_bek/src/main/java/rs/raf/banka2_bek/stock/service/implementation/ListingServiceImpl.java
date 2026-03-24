@@ -85,7 +85,7 @@ public class ListingServiceImpl implements ListingService {
         LocalDate now = LocalDate.now();
         List<ListingDailyPriceInfo> dailyPrices;
 
-        if ("DAY".equalsIgnoreCase(period)) dailyPrices = dailyPriceRepository.findByListingIdAndDateOrderByDateDesc(listingId, now);
+        if ("DAY".equalsIgnoreCase(period)) dailyPrices = dailyPriceRepository.findByListingIdAndDate(listingId, now);
 
         else if ("WEEK".equalsIgnoreCase(period))
             dailyPrices = dailyPriceRepository.findByListingIdAndDateAfterOrderByDateDesc(
