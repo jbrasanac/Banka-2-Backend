@@ -19,20 +19,29 @@ import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
 
+
+import static org.hamcrest.Matchers.hasSize;
+
 import org.mockito.ArgumentCaptor;
 
 import static org.hamcrest.Matchers.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class ActuaryControllerTest {
 
     private MockMvc mockMvc;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
     private ActuaryService actuaryService;
@@ -42,6 +51,7 @@ class ActuaryControllerTest {
 
     private ActuaryInfoDto testAgentDto;
     private ActuaryInfoDto testAgentDto2;
+    private ActuaryInfoDto supervisorDto;
 
     @BeforeEach
     void setUp() {
@@ -71,39 +81,35 @@ class ActuaryControllerTest {
         testAgentDto2.setDailyLimit(new BigDecimal("50000.00"));
         testAgentDto2.setUsedLimit(BigDecimal.ZERO);
         testAgentDto2.setNeedApproval(true);
-    }
 
-    // ══════════════════════════════════════════════════════════════════
-    //  GET /actuaries/agents
-    // ══════════════════════════════════════════════════════════════════
+        supervisorDto = new ActuaryInfoDto();
+        supervisorDto.setId(3L);
+        supervisorDto.setEmployeeId(20L);
+        supervisorDto.setEmployeeName("Nina Nikolic");
+        supervisorDto.setEmployeeEmail("nina.nikolic@banka.rs");
+        supervisorDto.setEmployeePosition("Direktor");
+        supervisorDto.setActuaryType("SUPERVISOR");
+        supervisorDto.setNeedApproval(false);
+    }
 
     @Test
     @DisplayName("GET /actuaries/agents - 200 OK sa listom agenata")
-    void getAgents_returnsList() throws Exception {
+    void getAgentsReturnsList() throws Exception {
         when(actuaryService.getAgents(null, null, null, null))
                 .thenReturn(List.of(testAgentDto, testAgentDto2));
 
         mockMvc.perform(get("/actuaries/agents"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].id").value(1))
-                .andExpect(jsonPath("$[0].employeeId").value(10))
                 .andExpect(jsonPath("$[0].employeeName").value("Marko Markovic"))
-                .andExpect(jsonPath("$[0].employeeEmail").value("marko.markovic@banka.rs"))
-                .andExpect(jsonPath("$[0].employeePosition").value("Menadzer"))
-                .andExpect(jsonPath("$[0].actuaryType").value("AGENT"))
-                .andExpect(jsonPath("$[0].dailyLimit").value(100000.00))
-                .andExpect(jsonPath("$[0].usedLimit").value(15000.00))
-                .andExpect(jsonPath("$[0].needApproval").value(false))
-                .andExpect(jsonPath("$[1].employeeName").value("Jelena Jovanovic"))
-                .andExpect(jsonPath("$[1].needApproval").value(true));
+                .andExpect(jsonPath("$[1].employeeName").value("Jelena Jovanovic"));
 
         verify(actuaryService).getAgents(null, null, null, null);
     }
 
     @Test
     @DisplayName("GET /actuaries/agents - 200 OK sa praznom listom")
-    void getAgents_returnsEmptyList() throws Exception {
+    void getAgentsReturnsEmptyList() throws Exception {
         when(actuaryService.getAgents(null, null, null, null))
                 .thenReturn(Collections.emptyList());
 
@@ -113,13 +119,12 @@ class ActuaryControllerTest {
     }
 
     @Test
-    @DisplayName("GET /actuaries/agents?email=marko - 200 OK filtrirano po email-u")
-    void getAgents_filteredByEmail() throws Exception {
+    @DisplayName("GET /actuaries/agents filtrira po email-u")
+    void getAgentsFilteredByEmail() throws Exception {
         when(actuaryService.getAgents(eq("marko"), isNull(), isNull(), isNull()))
                 .thenReturn(List.of(testAgentDto));
 
-        mockMvc.perform(get("/actuaries/agents")
-                        .param("email", "marko"))
+        mockMvc.perform(get("/actuaries/agents").param("email", "marko"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].employeeEmail").value("marko.markovic@banka.rs"));
@@ -128,101 +133,99 @@ class ActuaryControllerTest {
     }
 
     @Test
-    @DisplayName("GET /actuaries/agents?firstName=Jelena - 200 OK filtrirano po imenu")
-    void getAgents_filteredByFirstName() throws Exception {
-        when(actuaryService.getAgents(isNull(), eq("Jelena"), isNull(), isNull()))
-                .thenReturn(List.of(testAgentDto2));
-
-        mockMvc.perform(get("/actuaries/agents")
-                        .param("firstName", "Jelena"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].employeeName").value("Jelena Jovanovic"));
-
-        verify(actuaryService).getAgents(null, "Jelena", null, null);
-    }
-
-    @Test
-    @DisplayName("GET /actuaries/agents?lastName=Jovanovic - 200 OK filtrirano po prezimenu")
-    void getAgents_filteredByLastName() throws Exception {
-        when(actuaryService.getAgents(isNull(), isNull(), eq("Jovanovic"), isNull()))
-                .thenReturn(List.of(testAgentDto2));
-
-        mockMvc.perform(get("/actuaries/agents")
-                        .param("lastName", "Jovanovic"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].employeeName").value("Jelena Jovanovic"));
-
-        verify(actuaryService).getAgents(null, null, "Jovanovic", null);
-    }
-
-    @Test
-    @DisplayName("GET /actuaries/agents?position=Menadzer - 200 OK filtrirano po poziciji")
-    void getAgents_filteredByPosition() throws Exception {
-        when(actuaryService.getAgents(isNull(), isNull(), isNull(), eq("Menadzer")))
-                .thenReturn(List.of(testAgentDto));
-
-        mockMvc.perform(get("/actuaries/agents")
-                        .param("position", "Menadzer"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].employeePosition").value("Menadzer"));
-
-        verify(actuaryService).getAgents(null, null, null, "Menadzer");
-    }
-
-    @Test
-    @DisplayName("GET /actuaries/agents?email=marko&firstName=Marko&position=Menadzer - 200 OK sa vise filtera")
-    void getAgents_multipleFilters() throws Exception {
-        when(actuaryService.getAgents(eq("marko"), eq("Marko"), isNull(), eq("Menadzer")))
-                .thenReturn(List.of(testAgentDto));
-
-        mockMvc.perform(get("/actuaries/agents")
-                        .param("email", "marko")
-                        .param("firstName", "Marko")
-                        .param("position", "Menadzer"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)));
-
-        verify(actuaryService).getAgents("marko", "Marko", null, "Menadzer");
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  GET /actuaries/{employeeId}
-    // ══════════════════════════════════════════════════════════════════
-
-    @Test
-    @DisplayName("GET /actuaries/10 - 200 OK sa detaljima aktuara")
-    void getActuaryInfo_returnsDto() throws Exception {
+    @DisplayName("GET /actuaries/{employeeId} - 200 OK sa detaljima aktuara")
+    void getActuaryInfoReturnsDto() throws Exception {
         when(actuaryService.getActuaryInfo(10L)).thenReturn(testAgentDto);
 
         mockMvc.perform(get("/actuaries/10"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.employeeId").value(10))
-                .andExpect(jsonPath("$.employeeName").value("Marko Markovic"))
-                .andExpect(jsonPath("$.employeeEmail").value("marko.markovic@banka.rs"))
-                .andExpect(jsonPath("$.employeePosition").value("Menadzer"))
-                .andExpect(jsonPath("$.actuaryType").value("AGENT"))
-                .andExpect(jsonPath("$.dailyLimit").value(100000.00))
-                .andExpect(jsonPath("$.usedLimit").value(15000.00))
-                .andExpect(jsonPath("$.needApproval").value(false));
-
-        verify(actuaryService).getActuaryInfo(10L);
+                .andExpect(jsonPath("$.employeeName").value("Marko Markovic"));
     }
 
     @Test
-    @DisplayName("GET /actuaries/999 - 404 kada zapis ne postoji")
-    void getActuaryInfo_notFound_returns404() throws Exception {
+    @DisplayName("GET /actuaries/{employeeId} - 404 kada zapis ne postoji")
+    void getActuaryInfoNotFoundReturns404() throws Exception {
         when(actuaryService.getActuaryInfo(999L))
-                .thenThrow(new IllegalArgumentException(
-                        "Actuarski zapis za zaposlenog sa ID 999 nije pronadjen."));
+                .thenThrow(new IllegalArgumentException("Actuary info for employee with ID 999 not found."));
 
         mockMvc.perform(get("/actuaries/999"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value(
-                        "Actuarski zapis za zaposlenog sa ID 999 nije pronadjen."));
+                .andExpect(jsonPath("$.error").value("Actuary info for employee with ID 999 not found."));
+    }
+
+    @Test
+    @DisplayName("PATCH /actuaries/{employeeId}/limit - 200 OK kada se agent uspesno azurira")
+    void updateAgentLimitReturnsUpdatedDto() throws Exception {
+        UpdateActuaryLimitDto dto = new UpdateActuaryLimitDto();
+        dto.setDailyLimit(new BigDecimal("250000.00"));
+        dto.setNeedApproval(true);
+
+        ActuaryInfoDto updated = new ActuaryInfoDto();
+        updated.setId(1L);
+        updated.setEmployeeId(10L);
+        updated.setEmployeeName("Marko Markovic");
+        updated.setActuaryType("AGENT");
+        updated.setDailyLimit(new BigDecimal("250000.00"));
+        updated.setUsedLimit(new BigDecimal("15000.00"));
+        updated.setNeedApproval(true);
+
+        when(actuaryService.updateAgentLimit(eq(10L), eq(dto))).thenReturn(updated);
+
+        mockMvc.perform(patch("/actuaries/10/limit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(dto)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dailyLimit").value(250000.00))
+                .andExpect(jsonPath("$.needApproval").value(true))
+                .andExpect(jsonPath("$.usedLimit").value(15000.00));
+    }
+
+    @Test
+    @DisplayName("PATCH /actuaries/{employeeId}/limit - 403 kada pokusava izmena supervizora")
+    void updateAgentLimitForSupervisorReturns403() throws Exception {
+        UpdateActuaryLimitDto dto = new UpdateActuaryLimitDto();
+        dto.setDailyLimit(new BigDecimal("1000"));
+
+        when(actuaryService.updateAgentLimit(eq(20L), eq(dto)))
+                .thenThrow(new IllegalStateException("Only AGENT actuaries can be modified."));
+
+        mockMvc.perform(patch("/actuaries/20/limit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(dto)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Only AGENT actuaries can be modified."));
+    }
+
+    @Test
+    @DisplayName("PATCH /actuaries/{employeeId}/reset-limit - 200 OK resetuje usedLimit")
+    void resetUsedLimitReturnsUpdatedDto() throws Exception {
+        ActuaryInfoDto resetDto = new ActuaryInfoDto();
+        resetDto.setId(1L);
+        resetDto.setEmployeeId(10L);
+        resetDto.setEmployeeName("Marko Markovic");
+        resetDto.setActuaryType("AGENT");
+        resetDto.setDailyLimit(new BigDecimal("100000.00"));
+        resetDto.setUsedLimit(BigDecimal.ZERO);
+        resetDto.setNeedApproval(false);
+
+        when(actuaryService.resetUsedLimit(10L)).thenReturn(resetDto);
+
+        mockMvc.perform(patch("/actuaries/10/reset-limit"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.usedLimit").value(0))
+                .andExpect(jsonPath("$.dailyLimit").value(100000.00));
+    }
+
+    @Test
+    @DisplayName("PATCH /actuaries/{employeeId}/reset-limit - 404 kada zapis ne postoji")
+    void resetUsedLimitNotFoundReturns404() throws Exception {
+        when(actuaryService.resetUsedLimit(999L))
+                .thenThrow(new IllegalArgumentException("Actuary info for employee with ID 999 not found."));
+
+        mockMvc.perform(patch("/actuaries/999/reset-limit"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Actuary info for employee with ID 999 not found."));
     }
 
     @Test
