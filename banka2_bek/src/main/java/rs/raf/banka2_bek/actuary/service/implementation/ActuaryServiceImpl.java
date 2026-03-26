@@ -1,9 +1,12 @@
 package rs.raf.banka2_bek.actuary.service.implementation;
 
+import jakarta.persistence.EntityNotFoundException;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import rs.raf.banka2_bek.actuary.dto.ActuaryInfoDto;
@@ -49,56 +52,66 @@ public class ActuaryServiceImpl implements ActuaryService {
 
         return ActuaryMapper.toDto(info);
     }
+  
 
     @Override
     @Transactional
     public ActuaryInfoDto updateAgentLimit(Long employeeId, UpdateActuaryLimitDto dto) {
-        ensureSupervisorOrAdmin();
+      
+        String currentUsername = getAuthenticatedUsername();
+        ActuaryInfo currentUserInfo = actuaryInfoRepository.findByEmployee_Email(currentUsername)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user is not an actuary."));
 
-        if (dto == null) {
-            throw new IllegalArgumentException("Update payload is required.");
+        if(currentUserInfo.getActuaryType() != ActuaryType.SUPERVISOR) {
+           throw new IllegalStateException("Only supervisors can update agent limits.");
         }
 
-        ActuaryInfo agentInfo = getAgentActuaryInfo(employeeId);
-
-        if (dto.getDailyLimit() != null) {
-            if (dto.getDailyLimit().compareTo(BigDecimal.ZERO) < 0) {
-                throw new IllegalArgumentException("Daily limit cannot be negative.");
-            }
-            agentInfo.setDailyLimit(dto.getDailyLimit());
+        if(currentUserInfo.getEmployee().getId().equals(employeeId)) {
+            throw new IllegalStateException("Cannot change own actuary info.");
         }
 
-        if (dto.getNeedApproval() != null) {
-            agentInfo.setNeedApproval(dto.getNeedApproval());
+        ActuaryInfo targetUserInfo = actuaryInfoRepository.findByEmployeeId(employeeId)
+                .orElseThrow(() -> new IllegalArgumentException("User does not exist or isn't an actuary."));
+
+        if(targetUserInfo.getActuaryType() != ActuaryType.AGENT) {
+            throw new RuntimeException("Limits can only be updated for agents.");
         }
 
-        ActuaryInfo saved = actuaryInfoRepository.save(agentInfo);
-        return ActuaryMapper.toDto(saved);
+        targetUserInfo.setDailyLimit(dto.getDailyLimit() != null ? dto.getDailyLimit() : targetUserInfo.getDailyLimit());
+        targetUserInfo.setNeedApproval(dto.getNeedApproval() != null ? dto.getNeedApproval() : targetUserInfo.isNeedApproval());
+
+        actuaryInfoRepository.save(targetUserInfo);
+        ActuaryInfoDto response = ActuaryMapper.toDto(targetUserInfo);
+        return response;
     }
+  
 
     @Override
     @Transactional
     public ActuaryInfoDto resetUsedLimit(Long employeeId) {
-        ensureSupervisorOrAdmin();
+      
+        ActuaryInfo actuary = actuaryInfoRepository.findByEmployeeId(employeeId)
+                .orElseThrow(() -> new EntityNotFoundException("Actuary record not found for employee ID: " + employeeId));
 
-        ActuaryInfo agentInfo = getAgentActuaryInfo(employeeId);
-        agentInfo.setUsedLimit(BigDecimal.ZERO);
 
-        ActuaryInfo saved = actuaryInfoRepository.save(agentInfo);
-        return ActuaryMapper.toDto(saved);
+        if (actuary.getActuaryType() != ActuaryType.AGENT) {
+            throw new IllegalStateException("Reset is only allowed for Agents. Supervisors do not have limits.");
+        }
+
+        actuary.setUsedLimit(BigDecimal.ZERO);
+        ActuaryInfo updatedActuary = actuaryInfoRepository.save(actuary);
+        return ActuaryMapper.toDto(updatedActuary);
     }
 
+  
     @Override
     @Transactional
     public void resetAllUsedLimits() {
         List<ActuaryInfo> agents = actuaryInfoRepository.findAllByActuaryType(ActuaryType.AGENT);
 
-        if (agents.isEmpty()) {
-            return;
+        for (ActuaryInfo agent : agents) {
+            resetUsedLimit(agent.getEmployee().getId());
         }
-
-        agents.forEach(agent -> agent.setUsedLimit(BigDecimal.ZERO));
-        actuaryInfoRepository.saveAll(agents);
     }
 
     @Scheduled(cron = "0 59 23 * * *")
@@ -164,4 +177,21 @@ public class ActuaryServiceImpl implements ActuaryService {
 
         return email;
     }
+
+    private String getAuthenticatedUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new IllegalStateException("Authenticated user is required.");
+        }
+
+        Object principal = authentication.getPrincipal();
+
+        if (principal instanceof UserDetails userDetails) {
+            return userDetails.getUsername();
+        }
+
+        throw new IllegalStateException("Authenticated user is required.");
+    }
+
 }
+

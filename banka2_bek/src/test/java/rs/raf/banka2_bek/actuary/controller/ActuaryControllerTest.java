@@ -1,6 +1,5 @@
 package rs.raf.banka2_bek.actuary.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,7 +19,15 @@ import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
 
+
 import static org.hamcrest.Matchers.hasSize;
+
+import org.mockito.ArgumentCaptor;
+
+import static org.hamcrest.Matchers.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -219,5 +226,60 @@ class ActuaryControllerTest {
         mockMvc.perform(patch("/actuaries/999/reset-limit"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("Actuary info for employee with ID 999 not found."));
+    }
+
+    @Test
+    @DisplayName("PATCH /actuaries/{employeeId}/limit - 200 OK i prosledjuje dto service-u")
+    void updateAgentLimit_returnsUpdatedDto() throws Exception {
+        ActuaryInfoDto updated = new ActuaryInfoDto();
+        updated.setId(2L);
+        updated.setEmployeeId(11L);
+        updated.setEmployeeName("Jelena Jovanovic");
+        updated.setActuaryType("AGENT");
+        updated.setDailyLimit(new BigDecimal("65000.00"));
+        updated.setUsedLimit(BigDecimal.ZERO);
+        updated.setNeedApproval(false);
+
+        when(actuaryService.updateAgentLimit(eq(11L), any(UpdateActuaryLimitDto.class)))
+                .thenReturn(updated);
+
+        mockMvc.perform(patch("/actuaries/11/limit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dailyLimit\":65000.00,\"needApproval\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.employeeId").value(11))
+                .andExpect(jsonPath("$.dailyLimit").value(65000.00))
+                .andExpect(jsonPath("$.needApproval").value(false));
+
+        ArgumentCaptor<UpdateActuaryLimitDto> dtoCaptor = ArgumentCaptor.forClass(UpdateActuaryLimitDto.class);
+        verify(actuaryService).updateAgentLimit(eq(11L), dtoCaptor.capture());
+        assertThat(dtoCaptor.getValue().getDailyLimit()).isEqualByComparingTo("65000.00");
+        assertThat(dtoCaptor.getValue().getNeedApproval()).isFalse();
+    }
+
+    @Test
+    @DisplayName("PATCH /actuaries/{employeeId}/limit - 404 kada cilj ne postoji")
+    void updateAgentLimit_notFound_returns404() throws Exception {
+        when(actuaryService.updateAgentLimit(eq(999L), any(UpdateActuaryLimitDto.class)))
+                .thenThrow(new IllegalArgumentException("User does not exist or isn't an actuary."));
+
+        mockMvc.perform(patch("/actuaries/999/limit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dailyLimit\":12345}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("User does not exist or isn't an actuary."));
+    }
+
+    @Test
+    @DisplayName("PATCH /actuaries/{employeeId}/limit - 403 kada nije dozvoljeno")
+    void updateAgentLimit_forbidden_returns403() throws Exception {
+        when(actuaryService.updateAgentLimit(eq(11L), any(UpdateActuaryLimitDto.class)))
+                .thenThrow(new IllegalStateException("Only supervisors can update agent limits."));
+
+        mockMvc.perform(patch("/actuaries/11/limit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"needApproval\":true}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Only supervisors can update agent limits."));
     }
 }
