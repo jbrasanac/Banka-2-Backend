@@ -32,6 +32,7 @@ import rs.raf.banka2_bek.stock.model.Listing;
 import rs.raf.banka2_bek.stock.repository.ListingRepository;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -130,18 +131,51 @@ public class OrderServiceImpl implements OrderService {
         // 5. Postaviti lastModification = now()
         // 6. Sacuvati
         // 7. Pokrenuti izvrsavanje (asinhrono) - buduci sprint
-        throw new UnsupportedOperationException("TODO: Implementirati approveOrder");
+
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found"+ orderId));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new IllegalStateException("Only PENDING orders can be approved");
+        }
+
+        String supervisorName = getSupervisorName();
+
+        Listing listing = order.getListing();
+        if (listing.getSettlementDate() != null &&
+                listing.getSettlementDate().isBefore(java.time.LocalDate.now())) {
+            order.setStatus(OrderStatus.DECLINED);
+            order.setApprovedBy(supervisorName);
+            order.setLastModification(LocalDateTime.now());
+            Order saved = orderRepository.save(order);
+            return OrderMapper.toDto(saved);
+        }
+        order.setStatus(OrderStatus.APPROVED);
+        order.setApprovedBy(supervisorName);
+        order.setLastModification(LocalDateTime.now());
+
+        Order saved = orderRepository.save(order);
+        return OrderMapper.toDto(saved);
     }
 
     @Override
     public OrderDto declineOrder(Long orderId) {
-        // TODO: Implementirati odbijanje ordera
-        // 1. Naci order po ID-ju, proveriti da je PENDING
-        // 2. Postaviti status = DECLINED
-        // 3. Postaviti approvedBy = ime ulogovanog supervizora
-        // 4. Postaviti lastModification = now()
-        // 5. Sacuvati
-        throw new UnsupportedOperationException("TODO: Implementirati declineOrder");
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found " + orderId));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new IllegalStateException("Only PENDING orders can be declined");
+        }
+
+        String supervisorName = getSupervisorName();
+
+        order.setStatus(OrderStatus.DECLINED);
+        order.setApprovedBy(supervisorName);
+        order.setLastModification(LocalDateTime.now());
+
+        Order saved = orderRepository.save(order);
+        return OrderMapper.toDto(saved);
     }
 
     @Override
@@ -228,6 +262,12 @@ public class OrderServiceImpl implements OrderService {
             // Window crosses midnight (e.g., close at 22:00, window ends at 02:00)
             return !nowUtc.isBefore(closeTime) || nowUtc.isBefore(windowEnd);
         }
+    }
+    private String getSupervisorName() {
+        UserContext userContext = resolveCurrentUser();
+        return employeeRepository.findById(userContext.userId())
+                .map(e -> e.getFirstName() + " " + e.getLastName())
+                .orElseThrow(() -> new IllegalStateException("Supervisor not found"));
     }
 
     private record UserContext(Long userId, String userRole) {}
