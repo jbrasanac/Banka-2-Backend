@@ -2,6 +2,9 @@ package rs.raf.banka2_bek.actuary.service.implementation;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import rs.raf.banka2_bek.actuary.dto.ActuaryInfoDto;
 import rs.raf.banka2_bek.actuary.dto.UpdateActuaryLimitDto;
@@ -42,13 +45,31 @@ public class ActuaryServiceImpl implements ActuaryService {
 
     @Override
     public ActuaryInfoDto updateAgentLimit(Long employeeId, UpdateActuaryLimitDto dto) {
-        // TODO: Implementirati
-        // 1. Proveriti da je ulogovani korisnik supervizor
-        // 2. Naci ActuaryInfo za datog zaposlenog
-        // 3. Proveriti da je zaposleni AGENT (supervizoru se ne menja limit)
-        // 4. Azurirati dailyLimit i/ili needApproval iz DTO-a
-        // 5. Sacuvati i vratiti azurirane podatke
-        throw new UnsupportedOperationException("TODO: Implementirati updateAgentLimit");
+        String currentUsername = getAuthenticatedUsername();
+        ActuaryInfo currentUserInfo = actuaryInfoRepository.findByEmployee_Email(currentUsername)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user is not an actuary."));
+
+        if(currentUserInfo.getActuaryType() != ActuaryType.SUPERVISOR) {
+           throw new IllegalStateException("Only supervisors can update agent limits.");
+        }
+
+        if(currentUserInfo.getEmployee().getId().equals(employeeId)) {
+            throw new IllegalStateException("Cannot change own actuary info.");
+        }
+
+        ActuaryInfo targetUserInfo = actuaryInfoRepository.findByEmployeeId(employeeId)
+                .orElseThrow(() -> new IllegalArgumentException("User does not exist or isn't an actuary."));
+
+        if(targetUserInfo.getActuaryType() != ActuaryType.AGENT) {
+            throw new RuntimeException("Limits can only be updated for agents.");
+        }
+
+        targetUserInfo.setDailyLimit(dto.getDailyLimit() != null ? dto.getDailyLimit() : targetUserInfo.getDailyLimit());
+        targetUserInfo.setNeedApproval(dto.getNeedApproval() != null ? dto.getNeedApproval() : targetUserInfo.isNeedApproval());
+
+        actuaryInfoRepository.save(targetUserInfo);
+        ActuaryInfoDto response = ActuaryMapper.toDto(targetUserInfo);
+        return response;
     }
 
     @Override
@@ -70,4 +91,20 @@ public class ActuaryServiceImpl implements ActuaryService {
         // 3. Sacuvati sve
         // NAPOMENA: Ovo se poziva automatski putem @Scheduled
     }
+
+    private String getAuthenticatedUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new IllegalStateException("Authenticated user is required.");
+        }
+
+        Object principal = authentication.getPrincipal();
+
+        if (principal instanceof UserDetails userDetails) {
+            return userDetails.getUsername();
+        }
+
+        throw new IllegalStateException("Authenticated user is required.");
+    }
+
 }

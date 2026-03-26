@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.*;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.HttpClientErrorException;
@@ -16,6 +17,7 @@ import rs.raf.banka2_bek.actuary.repository.ActuaryInfoRepository;
 import rs.raf.banka2_bek.auth.model.User;
 import rs.raf.banka2_bek.auth.repository.UserRepository;
 import rs.raf.banka2_bek.employee.model.Employee;
+import rs.raf.banka2_bek.employee.repository.ActivationTokenRepository;
 import rs.raf.banka2_bek.employee.repository.EmployeeRepository;
 
 import java.math.BigDecimal;
@@ -41,6 +43,9 @@ class ActuaryControllerIntegrationTest {
     private EmployeeRepository employeeRepository;
 
     @Autowired
+    private ActivationTokenRepository activationTokenRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -51,25 +56,18 @@ class ActuaryControllerIntegrationTest {
     private Employee agentAna;
     private Employee supervisorNina;
     private String authToken;
+    private String supervisorToken;
+    private String agentToken;
 
     @BeforeEach
     void setUp() {
+        restTemplate.setRequestFactory(new JdkClientHttpRequestFactory());
+
         actuaryInfoRepository.deleteAll();
+        activationTokenRepository.deleteAll();
         employeeRepository.deleteAll();
         userRepository.deleteAll();
 
-        // Admin user za autentifikaciju — loguje se preko /auth/login
-        User adminUser = new User();
-        adminUser.setEmail("admin@banka.rs");
-        adminUser.setPassword(passwordEncoder.encode("Admin12345"));
-        adminUser.setFirstName("Admin");
-        adminUser.setLastName("Test");
-        adminUser.setActive(true);
-        adminUser.setRole("ADMIN");
-        userRepository.save(adminUser);
-
-        // Login da dobijemo JWT token
-        authToken = login("admin@banka.rs", "Admin12345");
 
         // Kreiramo zaposlene
         agentMarko = employeeRepository.save(Employee.builder()
@@ -152,6 +150,14 @@ class ActuaryControllerIntegrationTest {
         infoNina.setUsedLimit(null);
         infoNina.setNeedApproval(false);
         actuaryInfoRepository.save(infoNina);
+
+        createUser("admin@banka.rs", "Admin12345", "ADMIN", "Admin", "Test");
+        createUser("nina.nikolic@banka.rs", "Supervisor123", "EMPLOYEE", "Nina", "Nikolic");
+        createUser("marko.markovic@banka.rs", "Agent123", "EMPLOYEE", "Marko", "Markovic");
+
+        authToken = login("admin@banka.rs", "Admin12345");
+        supervisorToken = login("nina.nikolic@banka.rs", "Supervisor123");
+        agentToken = login("marko.markovic@banka.rs", "Agent123");
     }
 
     private String url(String path) {
@@ -176,10 +182,25 @@ class ActuaryControllerIntegrationTest {
     }
 
     private HttpHeaders authHeaders() {
+        return authHeaders(authToken);
+    }
+
+    private HttpHeaders authHeaders(String token) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(authToken);
+        headers.setBearerAuth(token);
         return headers;
+    }
+
+    private void createUser(String email, String rawPassword, String role, String firstName, String lastName) {
+        User user = new User();
+        user.setEmail(email);
+        user.setPassword(passwordEncoder.encode(rawPassword));
+        user.setFirstName(firstName);
+        user.setLastName(lastName);
+        user.setActive(true);
+        user.setRole(role);
+        userRepository.save(user);
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -331,5 +352,142 @@ class ActuaryControllerIntegrationTest {
         assertThat(response.getBody()).contains("Jelena Jovanovic");
         assertThat(response.getBody()).contains("\"needApproval\":true");
         assertThat(response.getBody()).contains("50000.00");
+    }
+
+    @Test
+    void updateAgentLimitAsSupervisorReturns200AndPersistsChanges() {
+        String payload = "{\"dailyLimit\":65000.00,\"needApproval\":false}";
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                url("/actuaries/" + agentJelena.getId() + "/limit"),
+                HttpMethod.PATCH,
+                new HttpEntity<>(payload, authHeaders(supervisorToken)),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"employeeId\":" + agentJelena.getId());
+        assertThat(response.getBody()).contains("65000.00");
+        assertThat(response.getBody()).contains("\"needApproval\":false");
+
+        ActuaryInfo persisted = actuaryInfoRepository.findByEmployeeId(agentJelena.getId()).orElseThrow();
+        assertThat(persisted.getDailyLimit()).isEqualByComparingTo("65000.00");
+        assertThat(persisted.isNeedApproval()).isFalse();
+    }
+
+    @Test
+    void updateAgentLimitDailyLimitOnlyReturns200AndPreservesNeedApproval() {
+        String payload = "{\"dailyLimit\":91000.00}";
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                url("/actuaries/" + agentJelena.getId() + "/limit"),
+                HttpMethod.PATCH,
+                new HttpEntity<>(payload, authHeaders(supervisorToken)),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"employeeId\":" + agentJelena.getId());
+        assertThat(response.getBody()).contains("91000.00");
+        assertThat(response.getBody()).contains("\"needApproval\":true");
+
+        ActuaryInfo persisted = actuaryInfoRepository.findByEmployeeId(agentJelena.getId()).orElseThrow();
+        assertThat(persisted.getDailyLimit()).isEqualByComparingTo("91000.00");
+        assertThat(persisted.isNeedApproval()).isTrue();
+    }
+
+    @Test
+    void updateAgentLimitNeedApprovalOnlyReturns200AndPreservesDailyLimit() {
+        String payload = "{\"needApproval\":false}";
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                url("/actuaries/" + agentJelena.getId() + "/limit"),
+                HttpMethod.PATCH,
+                new HttpEntity<>(payload, authHeaders(supervisorToken)),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"employeeId\":" + agentJelena.getId());
+        assertThat(response.getBody()).contains("50000.00");
+        assertThat(response.getBody()).contains("\"needApproval\":false");
+
+        ActuaryInfo persisted = actuaryInfoRepository.findByEmployeeId(agentJelena.getId()).orElseThrow();
+        assertThat(persisted.getDailyLimit()).isEqualByComparingTo("50000.00");
+        assertThat(persisted.isNeedApproval()).isFalse();
+    }
+
+    @Test
+    void updateAgentLimitAsAgentReturns403() {
+        String payload = "{\"dailyLimit\":61000.00}";
+
+        assertThatThrownBy(() -> restTemplate.exchange(
+                url("/actuaries/" + agentJelena.getId() + "/limit"),
+                HttpMethod.PATCH,
+                new HttpEntity<>(payload, authHeaders(agentToken)),
+                String.class
+        )).isInstanceOf(HttpClientErrorException.Forbidden.class);
+    }
+
+    @Test
+    void updateAgentLimitWithoutAuthReturns403() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        assertThatThrownBy(() -> restTemplate.exchange(
+                url("/actuaries/" + agentJelena.getId() + "/limit"),
+                HttpMethod.PATCH,
+                new HttpEntity<>("{\"dailyLimit\":70000}", headers),
+                String.class
+        )).isInstanceOf(HttpClientErrorException.Forbidden.class);
+    }
+
+    @Test
+    void updateAgentLimitReturns404WhenTargetDoesNotExist() {
+        String payload = "{\"needApproval\":true}";
+
+        assertThatThrownBy(() -> restTemplate.exchange(
+                url("/actuaries/999999/limit"),
+                HttpMethod.PATCH,
+                new HttpEntity<>(payload, authHeaders(supervisorToken)),
+                String.class
+        )).isInstanceOf(HttpClientErrorException.NotFound.class);
+    }
+
+    @Test
+    void updateAgentLimitReturnsDomainErrorWhenTargetIsSupervisor() {
+        Employee otherSupervisor = employeeRepository.save(Employee.builder()
+                .firstName("Sara").lastName("Savic")
+                .email("sara.savic@banka.rs")
+                .dateOfBirth(LocalDate.of(1987, 7, 7))
+                .gender("F").phone("+38166111222").address("Nis")
+                .username("sara.savic")
+                .password(passwordEncoder.encode("pass" + "salt"))
+                .saltPassword("salt")
+                .position("Direktor").department("Management").active(true)
+                .permissions(Set.of("SUPERVISOR"))
+                .build());
+
+        ActuaryInfo otherSupervisorInfo = new ActuaryInfo();
+        otherSupervisorInfo.setEmployee(otherSupervisor);
+        otherSupervisorInfo.setActuaryType(ActuaryType.SUPERVISOR);
+        otherSupervisorInfo.setDailyLimit(null);
+        otherSupervisorInfo.setUsedLimit(null);
+        otherSupervisorInfo.setNeedApproval(false);
+        actuaryInfoRepository.save(otherSupervisorInfo);
+
+        String payload = "{\"dailyLimit\":80000.00}";
+
+        assertThatThrownBy(() -> restTemplate.exchange(
+                url("/actuaries/" + otherSupervisor.getId() + "/limit"),
+                HttpMethod.PATCH,
+                new HttpEntity<>(payload, authHeaders(supervisorToken)),
+                String.class
+        ))
+                .isInstanceOf(HttpClientErrorException.class)
+                .satisfies(ex -> {
+                    HttpStatusCode status = ((HttpClientErrorException) ex).getStatusCode();
+                    assertThat(status == HttpStatus.BAD_REQUEST || status == HttpStatus.CONFLICT).isTrue();
+                });
     }
 }

@@ -22,8 +22,6 @@ public interface ActuaryInfoRepository extends JpaRepository<ActuaryInfo, Long> 
             "AND (:firstName IS NULL OR LOWER(a.employee.firstName) LIKE LOWER(CONCAT('%', :firstName, '%'))) " +
             "AND (:lastName IS NULL OR LOWER(a.employee.lastName) LIKE LOWER(CONCAT('%', :lastName, '%'))) " +
             "AND (:position IS NULL OR LOWER(a.employee.position) LIKE LOWER(CONCAT('%', :position, '%')))")
-
-
     List <ActuaryInfo> findByTypeAndFilters(
             @Param("type") ActuaryType type,
             @Param("email") String email,
@@ -31,4 +29,6 @@ public interface ActuaryInfoRepository extends JpaRepository<ActuaryInfo, Long> 
             @Param("lastName") String lastName,
             @Param("position") String position
     );
+
+    Optional<ActuaryInfo> findByEmployee_Email(String username);
 }
