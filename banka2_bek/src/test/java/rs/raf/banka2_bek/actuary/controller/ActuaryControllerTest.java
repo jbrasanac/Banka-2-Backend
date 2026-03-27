@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import rs.raf.banka2_bek.actuary.controller.exception_handler.ActuaryExceptionHandler;
 import rs.raf.banka2_bek.actuary.dto.ActuaryInfoDto;
 import rs.raf.banka2_bek.actuary.dto.UpdateActuaryLimitDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import rs.raf.banka2_bek.actuary.service.ActuaryService;
 
 import java.math.BigDecimal;

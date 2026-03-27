@@ -33,7 +33,6 @@ import rs.raf.banka2_bek.auth.repository.UserRepository;
 import rs.raf.banka2_bek.employee.model.Employee;
 import rs.raf.banka2_bek.employee.repository.EmployeeRepository;
 
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 
 
@@ -158,7 +157,7 @@ class ActuaryServiceImplTest {
 
 
     private void setAuthenticatedUser(String email) {
-        UserDetails principal = User.withUsername(email)
+        UserDetails principal = org.springframework.security.core.userdetails.User.withUsername(email)
                 .password("ignored")
                 .authorities("ROLE_USER")
                 .build();
@@ -581,8 +580,8 @@ class ActuaryServiceImplTest {
     }
 
     @Nested
-    @DisplayName("updateAgentLimit")
-    class UpdateAgentLimit {
+    @DisplayName("updateAgentLimit - supervisor flow")
+    class UpdateAgentLimitSupervisorFlow {
 
         @org.junit.jupiter.api.AfterEach
         void clearSecurityContext() {
