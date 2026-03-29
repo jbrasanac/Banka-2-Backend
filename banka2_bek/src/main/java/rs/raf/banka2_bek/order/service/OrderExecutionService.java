@@ -66,307 +66,264 @@ public class OrderExecutionService {
     /** Dodatan delay po fill-u za after-hours naloge (u minutima) */
     private static final int AFTER_HOURS_DELAY_MINUTES = 30;
 
-    /**
-     * Glavna metoda za izvrsavanje naloga.
-     * Poziva se periodicno iz OrderScheduler-a (svakih 10 sekundi).
-     *
-     * Prolazi kroz sve APPROVED naloge koji nisu zavrseni i pokusava
-     * da izvrsi jedan parcijalni fill po pozivu za svaki nalog.
-     */
     @Transactional
     public void executeOrders() {
-        /*
-         * TODO: Implementirati glavnu petlju izvrsavanja naloga
-         *
-         * 1. Dohvatiti sve APPROVED naloge koji nisu zavrseni:
-         *    List<Order> activeOrders = orderRepository.findByStatusAndIsDoneFalse(OrderStatus.APPROVED);
-         *
-         * 2. Filtrirati samo MARKET i LIMIT naloge (STOP i STOP_LIMIT se ovde ne izvrsavaju
-         *    jer ih StopOrderActivationService pretvara u MARKET/LIMIT pre izvrsavanja).
-         *
-         * 3. Za svaki nalog:
-         *    a. Proveriti settlement date:
-         *       - Ako listing ima settlementDate i taj datum je prosao (before LocalDate.now()):
-         *         order.setStatus(OrderStatus.DECLINED);
-         *         order.setIsDone(true);
-         *         order.setLastModification(LocalDateTime.now());
-         *         orderRepository.save(order);
-         *         log.warn("Order #{} auto-declined: settlement date {} has passed", ...);
-         *         continue;
-         *
-         *    b. Proveriti after-hours delay:
-         *       - Ako je order.isAfterHours() == true:
-         *         Proveriti da li je proslo dovoljno vremena od poslednjeg fill-a
-         *         (lastModification + AFTER_HOURS_DELAY_MINUTES minuta <= now)
-         *         Ako nije proslo dovoljno vremena, preskoci ovaj nalog.
-         *
-         *    c. Pozvati executeSingleOrder(order);
-         *
-         * 4. Svaka greska u izvrsavanju jednog naloga NE SME da prekine
-         *    izvrsavanje ostalih — wrap u try-catch sa log.error().
-         */
-        log.info("TODO: implementirati"); // stub
-    }
+        // 1. Dohvatiti sve APPROVED naloge koji nisu zavrseni
+        List<Order> activeOrders = orderRepository.findByStatusAndIsDoneFalse(OrderStatus.APPROVED);
 
-    /**
-     * Izvrsava jedan parcijalni fill za dati nalog.
-     *
-     * @param order nalog koji se izvrsava
-     */
+        // 2. Filtrirati samo MARKET i LIMIT naloge
+        // STOP i STOP_LIMIT su vec pretvoreni u MARKET/LIMIT u proslom zadatku
+        List<Order> executableOrders = activeOrders.stream()
+                .filter(o -> o.getOrderType() == OrderType.MARKET || o.getOrderType() == OrderType.LIMIT)
+                .toList();
+
+        log.info("Starting execution cycle for {} orders.", executableOrders.size());
+
+        for (Order order : executableOrders) {
+            try {
+                // 3a. Provera settlement date-a (samo za futures/opcije gde postoji)
+                if (order.getListing().getSettlementDate() != null &&
+                        order.getListing().getSettlementDate().isBefore(LocalDate.now())) {
+
+                    order.setStatus(OrderStatus.DECLINED);
+                    order.setDone(true);
+                    order.setLastModification(LocalDateTime.now());
+                    orderRepository.save(order);
+
+                    log.warn("Order #{} auto-declined: settlement date {} has passed",
+                            order.getId(), order.getListing().getSettlementDate());
+                    continue;
+                }
+
+                // 3b. Provera after-hours delay
+                // Ako je after-hours, mora proci AFTER_HOURS_DELAY_MINUTES od poslednje promene
+                if (order.isAfterHours()) {
+                    LocalDateTime lastMod = order.getLastModification();
+                    if (lastMod != null && lastMod.plusMinutes(AFTER_HOURS_DELAY_MINUTES).isAfter(LocalDateTime.now())) {
+                        log.debug("Order #{} is after-hours, skipping until delay passes.", order.getId());
+                        continue;
+                    }
+                }
+
+                // 3c. Izvrsavanje pojedinacnog naloga
+                executeSingleOrder(order);
+
+            } catch (Exception e) {
+                // 4. Wrap u try-catch da greska na jednom nalogu ne srusi celu petlju
+                log.error("Critical error executing order #{}: {}", order.getId(), e.getMessage());
+            }
+        }
+    }
     private void executeSingleOrder(Order order) {
-        /*
-         * TODO: Implementirati izvrsavanje jednog naloga (partial fill)
-         *
-         * 1. Dohvatiti azuriranu cenu listinga:
-         *    Listing listing = listingRepository.findById(order.getListing().getId())
-         *        .orElseThrow(() -> ...);
-         *
-         * 2. Odrediti execution price:
-         *    - Za MARKET: koristi listing.getAsk() (BUY) ili listing.getBid() (SELL)
-         *    - Za LIMIT BUY:  izvrsi samo ako listing.getAsk() <= order.getLimitValue()
-         *      Ako nije ispunjen uslov, return (ne izvrsavaj).
-         *    - Za LIMIT SELL: izvrsi samo ako listing.getBid() >= order.getLimitValue()
-         *      Ako nije ispunjen uslov, return (ne izvrsavaj).
-         *
-         * 3. Odrediti kolicinu za fill:
-         *    a. Izracunati fillQuantity koristeci vremenski interval formulu:
-         *       - volume = listing.getVolume() (dnevni volume listinga)
-         *       - remaining = order.getRemainingPortions()
-         *       - Ako volume == 0 ili volume == null, postavi volume = 1
-         *       - maxInterval = (24 * 60) / (volume / remaining)  (u sekundama)
-         *       - randomInterval = ThreadLocalRandom.current().nextInt(0, maxInterval + 1)
-         *       - fillQuantity = Math.max(1, remaining / Math.max(1, randomInterval))
-         *       - fillQuantity = Math.min(fillQuantity, remaining)  // ne moze vise od preostalog
-         *
-         *    b. AON (All-or-None) provera:
-         *       - Pozvati aonValidationService.checkCanExecuteAon(order, fillQuantity)
-         *       - Ako vrati false (order je AON a fillQuantity < quantity), return
-         *       - Ako je AON, fillQuantity = order.getQuantity() (mora sve odjednom)
-         *
-         * 4. Izracunati ukupnu cenu i proviziju:
-         *    BigDecimal totalPrice = executionPrice * fillQuantity * contractSize
-         *    BigDecimal commission = calculateCommission(totalPrice, order.getOrderType())
-         *
-         * 5. Izvrsiti finansijske operacije:
-         *    - Za BUY:
-         *      a. updateAccountBalance(order, fillQuantity, executionPrice, commission)
-         *         — skida totalPrice + commission sa korisnikovog racuna
-         *      b. updatePortfolio(order, fillQuantity, executionPrice)
-         *         — dodaje hartije u portfolio korisnika
-         *      c. createFillTransaction(order, fillQuantity, executionPrice)
-         *         — kreira Transaction zapis (debit na korisnikov racun)
-         *
-         *    - Za SELL:
-         *      a. updatePortfolio(order, -fillQuantity, executionPrice)
-         *         — skida hartije iz portfolija korisnika
-         *      b. updateAccountBalance(order, fillQuantity, executionPrice, commission)
-         *         — dodaje totalPrice - commission na korisnikov racun
-         *      c. createFillTransaction(order, fillQuantity, executionPrice)
-         *         — kreira Transaction zapis (credit na korisnikov racun)
-         *
-         * 6. Azurirati nalog:
-         *    order.setRemainingPortions(order.getRemainingPortions() - fillQuantity);
-         *    order.setLastModification(LocalDateTime.now());
-         *    if (order.getRemainingPortions() <= 0) {
-         *        order.setDone(true);
-         *        order.setStatus(OrderStatus.DONE);
-         *    }
-         *    orderRepository.save(order);
-         *
-         * 7. Logovati:
-         *    log.info("Order #{} filled {} of {} @ {} (remaining: {}, commission: {})",
-         *             order.getId(), fillQuantity, order.getQuantity(),
-         *             executionPrice, order.getRemainingPortions(), commission);
-         */
-        log.info("TODO: implementirati"); // stub
-    }
+        // 1. Dohvatiti ažuriranu cenu listinga
+        Listing listing = listingRepository.findById(order.getListing().getId())
+                .orElseThrow(() -> new RuntimeException("Listing not found for order #" + order.getId()));
 
-    /**
-     * Kreira Transaction zapis za jedan fill naloga.
-     *
-     * @param order    nalog koji se izvrsava
-     * @param quantity kolicina hartija u ovom fill-u
-     * @param price    cena po jedinici pri izvrsavanju
-     */
+        // 2. Odrediti execution price
+        BigDecimal executionPrice;
+        if (order.getOrderType() == OrderType.MARKET) {
+            executionPrice = (order.getDirection() == OrderDirection.BUY) ? listing.getAsk() : listing.getBid();
+        } else { // LIMIT
+            if (order.getDirection() == OrderDirection.BUY) {
+                if (listing.getAsk().compareTo(order.getLimitValue()) > 0) return; // Cena previsoka
+                executionPrice = listing.getAsk();
+            } else {
+                if (listing.getBid().compareTo(order.getLimitValue()) < 0) return; // Cena preniska
+                executionPrice = listing.getBid();
+            }
+        }
+
+        // 3. Odrediti količinu za fill (Vremenska formula)
+        long volume = (listing.getVolume() == null || listing.getVolume() == 0) ? 1 : listing.getVolume();
+        int remaining = order.getRemainingPortions();
+
+        // Formula: maxInterval u sekundama, pa randomizacija
+        long maxInterval = (24L * 60L) / (volume / (long) remaining);
+        if (maxInterval <= 0) maxInterval = 1;
+        long randomInterval = ThreadLocalRandom.current().nextLong(0, maxInterval + 1);
+
+        int fillQuantity = Math.max(1, (int) (remaining / Math.max(1, randomInterval)));
+        fillQuantity = Math.min(fillQuantity, remaining);
+
+        // b. AON (All-or-None) provera
+        if (!aonValidationService.checkCanExecuteAon(order, fillQuantity)) {
+            return;
+        }
+        if (order.isAllOrNone()) {
+            fillQuantity = order.getQuantity(); // AON mora sve
+        }
+
+        // 4. Izračun ukupne cene i provizije
+        BigDecimal contractSize = BigDecimal.valueOf(order.getContractSize());
+        BigDecimal totalPrice = executionPrice.multiply(BigDecimal.valueOf(fillQuantity)).multiply(contractSize)
+                .setScale(4, RoundingMode.HALF_UP);
+
+        // Provizija se ne naplaćuje ako zaposleni trguje u ime banke
+        BigDecimal commission = "EMPLOYEE".equals(order.getUserRole()) ? BigDecimal.ZERO : calculateCommission(totalPrice, order.getOrderType());
+
+        // 5. Finansijske operacije
+        try {
+            if (order.getDirection() == OrderDirection.BUY) {
+                updateAccountBalance(order, fillQuantity, executionPrice, commission);
+                updatePortfolio(order, fillQuantity, executionPrice);
+            } else {
+                updatePortfolio(order, -fillQuantity, executionPrice); // negativan qty za SELL
+                updateAccountBalance(order, fillQuantity, executionPrice, commission);
+            }
+            createFillTransaction(order, fillQuantity, executionPrice);
+
+            // 6. Ažurirati nalog
+            order.setRemainingPortions(order.getRemainingPortions() - fillQuantity);
+            order.setLastModification(LocalDateTime.now());
+            if (order.getRemainingPortions() <= 0) {
+                order.setDone(true);
+                order.setStatus(OrderStatus.DONE);
+            }
+            orderRepository.save(order);
+
+            log.info("Order #{} filled {} of {} @ {} (remaining: {}, commission: {})",
+                    order.getId(), fillQuantity, order.getQuantity(),
+                    executionPrice, order.getRemainingPortions(), commission);
+
+        } catch (Exception e) {
+            log.error("Failed to process financial settlement for order #{}: {}", order.getId(), e.getMessage());
+        }
+    }
     private void createFillTransaction(Order order, int quantity, BigDecimal price) {
-        /*
-         * TODO: Implementirati kreiranje Transaction zapisa
-         *
-         * 1. Dohvatiti Account korisnika:
-         *    Account account = accountRepository.findById(order.getAccountId())
-         *        .orElseThrow(() -> ...);
-         *
-         * 2. Izracunati iznose:
-         *    BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity))
-         *        .multiply(BigDecimal.valueOf(order.getContractSize()))
-         *        .setScale(4, RoundingMode.HALF_UP);
-         *
-         * 3. Kreirati Transaction koristeci builder:
-         *    Transaction.builder()
-         *        .account(account)
-         *        .currency(account.getCurrency())
-         *        .description("Order #" + order.getId() + " fill: " + quantity + " x " +
-         *                     order.getListing().getTicker() + " @ " + price)
-         *        .debit(order.getDirection() == OrderDirection.BUY ? totalAmount : BigDecimal.ZERO)
-         *        .credit(order.getDirection() == OrderDirection.SELL ? totalAmount : BigDecimal.ZERO)
-         *        .balanceAfter(account.getBalance())    // azurirano stanje
-         *        .availableAfter(account.getAvailableBalance())
-         *        .createdAt(LocalDateTime.now())
-         *        .build();
-         *
-         * 4. Sacuvati: transactionRepository.save(transaction);
-         *
-         * 5. Edge cases:
-         *    - Account mora postojati (baciti exception ako ne postoji)
-         *    - balanceAfter i availableAfter moraju odrazavati stanje NAKON transakcije
-         *    - Provizija se NE zapisuje u ovu transakciju (zapisuje se posebno u updateAccountBalance)
-         */
-        log.info("TODO: implementirati"); // stub
+        Account account = accountRepository.findById(order.getAccountId())
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity))
+                .multiply(BigDecimal.valueOf(order.getContractSize()))
+                .setScale(4, RoundingMode.HALF_UP);
+
+        Transaction transaction = Transaction.builder()
+                .account(account)
+                .currency(account.getCurrency())
+                .description("Order #" + order.getId() + " fill: " + quantity + " x " +
+                        order.getListing().getTicker() + " @ " + price)
+                .debit(order.getDirection() == OrderDirection.BUY ? totalAmount : BigDecimal.ZERO)
+                .credit(order.getDirection() == OrderDirection.SELL ? totalAmount : BigDecimal.ZERO)
+                .balanceAfter(account.getBalance())
+                .availableAfter(account.getAvailableBalance())
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        transactionRepository.save(transaction);
     }
 
-    /**
-     * Azurira portfolio korisnika nakon fill-a.
-     * Za BUY: dodaje hartije. Za SELL: oduzima hartije.
-     *
-     * @param order    nalog koji se izvrsava
-     * @param quantity pozitivan za BUY, negativan za SELL
-     * @param price    cena po jedinici pri izvrsavanju
-     */
     private void updatePortfolio(Order order, int quantity, BigDecimal price) {
-        /*
-         * TODO: Implementirati azuriranje portfolija
-         *
-         * 1. Potraziti postojeci portfolio entry za korisnika i listing:
-         *    Optional<Portfolio> existing = portfolioRepository.findByUserId(order.getUserId())
-         *        .stream()
-         *        .filter(p -> p.getListingId().equals(order.getListing().getId()))
-         *        .findFirst();
-         *
-         * 2. Ako postoji (BUY — dodaj kolicinu, azuriraj prosecnu cenu):
-         *    Portfolio portfolio = existing.get();
-         *    int oldQty = portfolio.getQuantity();
-         *    BigDecimal oldAvg = portfolio.getAverageBuyPrice();
-         *
-         *    Ako quantity > 0 (BUY):
-         *      int newQty = oldQty + quantity;
-         *      BigDecimal newAvg = (oldAvg.multiply(BigDecimal.valueOf(oldQty))
-         *          .add(price.multiply(BigDecimal.valueOf(quantity))))
-         *          .divide(BigDecimal.valueOf(newQty), 4, RoundingMode.HALF_UP);
-         *      portfolio.setQuantity(newQty);
-         *      portfolio.setAverageBuyPrice(newAvg);
-         *
-         *    Ako quantity < 0 (SELL):
-         *      int newQty = oldQty + quantity;  // quantity je negativan
-         *      portfolio.setQuantity(newQty);
-         *      // Prosecna cena ostaje ista kod prodaje
-         *      Ako newQty <= 0: portfolioRepository.delete(portfolio); return;
-         *
-         *    portfolioRepository.save(portfolio);
-         *
-         * 3. Ako ne postoji i quantity > 0 (prvi BUY):
-         *    Portfolio portfolio = new Portfolio();
-         *    portfolio.setUserId(order.getUserId());
-         *    portfolio.setListingId(order.getListing().getId());
-         *    portfolio.setListingTicker(order.getListing().getTicker());
-         *    portfolio.setListingName(order.getListing().getName());
-         *    portfolio.setListingType(order.getListing().getListingType().name());
-         *    portfolio.setQuantity(quantity);
-         *    portfolio.setAverageBuyPrice(price);
-         *    portfolio.setPublicQuantity(0);
-         *    portfolioRepository.save(portfolio);
-         *
-         * 4. Ako ne postoji i quantity < 0 (SELL bez poseda):
-         *    Ovo ne bi trebalo da se desi jer FundsVerificationService
-         *    proverava da korisnik ima dovoljno hartija pri kreiranju naloga.
-         *    Baciti IllegalStateException ako se ipak desi.
-         *
-         * 5. Edge cases:
-         *    - Kolicina moze biti 0 nakon SELL-a — obrisati portfolio entry
-         *    - publicQuantity se NE menja pri trgovini (samo korisnik to podesava za OTC)
-         *    - lastModified se automatski azurira (@PrePersist/@PreUpdate u Portfolio modelu)
-         */
-        log.info("TODO: implementirati"); // stub
+        Optional<Portfolio> existing = portfolioRepository.findByUserId(order.getUserId())
+                .stream()
+                .filter(p -> p.getListingId().equals(order.getListing().getId()))
+                .findFirst();
+
+        if (existing.isPresent()) {
+            Portfolio portfolio = existing.get();
+            int oldQty = portfolio.getQuantity();
+
+            if (quantity > 0) { // BUY
+                BigDecimal oldTotal = portfolio.getAverageBuyPrice().multiply(BigDecimal.valueOf(oldQty));
+                BigDecimal newFillTotal = price.multiply(BigDecimal.valueOf(quantity));
+                int newQty = oldQty + quantity;
+
+                BigDecimal newAvg = oldTotal.add(newFillTotal)
+                        .divide(BigDecimal.valueOf(newQty), 4, RoundingMode.HALF_UP);
+
+                portfolio.setQuantity(newQty);
+                portfolio.setAverageBuyPrice(newAvg);
+                portfolioRepository.save(portfolio);
+            } else { // SELL (quantity je već negativan)
+                int newQty = oldQty + quantity;
+                if (newQty <= 0) {
+                    portfolioRepository.delete(portfolio);
+                } else {
+                    portfolio.setQuantity(newQty);
+                    portfolioRepository.save(portfolio);
+                }
+            }
+        } else if (quantity > 0) { // Prvi BUY
+            Portfolio portfolio = new Portfolio();
+            portfolio.setUserId(order.getUserId());
+            portfolio.setListingId(order.getListing().getId());
+            portfolio.setListingTicker(order.getListing().getTicker());
+            portfolio.setListingName(order.getListing().getName());
+            portfolio.setListingType(order.getListing().getListingType().name());
+            portfolio.setQuantity(quantity);
+            portfolio.setAverageBuyPrice(price);
+            portfolio.setPublicQuantity(0);
+
+            portfolioRepository.save(portfolio);
+        } else {
+            throw new IllegalStateException("Attempted to sell assets not present in portfolio for user: " + order.getUserId());
+        }
     }
 
-    /**
-     * Azurira stanje na racunu korisnika i uplacuje proviziju na racun banke.
-     *
-     * @param order      nalog koji se izvrsava
-     * @param quantity   kolicina hartija u ovom fill-u
-     * @param price      cena po jedinici pri izvrsavanju
-     * @param commission izracunata provizija za ovaj fill
-     */
     private void updateAccountBalance(Order order, int quantity, BigDecimal price, BigDecimal commission) {
-        /*
-         * TODO: Implementirati azuriranje stanja na racunu
-         *
-         * 1. Dohvatiti Account korisnika:
-         *    Account userAccount = accountRepository.findById(order.getAccountId())
-         *        .orElseThrow(() -> ...);
-         *
-         * 2. Izracunati ukupan iznos:
-         *    BigDecimal totalAmount = price
-         *        .multiply(BigDecimal.valueOf(quantity))
-         *        .multiply(BigDecimal.valueOf(order.getContractSize()))
-         *        .setScale(4, RoundingMode.HALF_UP);
-         *
-         * 3. Za BUY nalog:
-         *    - Skinuti sa racuna korisnika: totalAmount + commission
-         *    userAccount.setBalance(userAccount.getBalance().subtract(totalAmount).subtract(commission));
-         *    userAccount.setAvailableBalance(userAccount.getAvailableBalance().subtract(totalAmount).subtract(commission));
-         *
-         * 4. Za SELL nalog:
-         *    - Dodati na racun korisnika: totalAmount - commission
-         *    userAccount.setBalance(userAccount.getBalance().add(totalAmount).subtract(commission));
-         *    userAccount.setAvailableBalance(userAccount.getAvailableBalance().add(totalAmount).subtract(commission));
-         *
-         * 5. Sacuvati korisnikov racun:
-         *    accountRepository.save(userAccount);
-         *
-         * 6. Uplatiti proviziju na racun banke:
-         *    - Pronaci racun banke (potrebno definisati kako se identifikuje — po accountNumber ili posebna tabela)
-         *    - Dodati commission na balance bankinog racuna
-         *    - Sacuvati racun banke
-         *    - Kreirati Transaction zapis za proviziju
-         *
-         * 7. Edge cases:
-         *    - Stanje na racunu moze postati negativno ako se cena promenila od odobrenja
-         *      Razmotriti da li baciti exception ili dozvoliti (overdraft)
-         *    - Commission ide UVEK na racun banke, bez obzira da li je BUY ili SELL
-         *    - Za zaposlene (order.getUserRole() == "EMPLOYEE") koji trguju u ime banke:
-         *      provizija se NE naplacuje (skida se sa bankinog racuna bez komisije)
-         *    - availableBalance mora ostati >= 0
-         */
-        log.info("TODO: implementirati"); // stub
+        Account userAccount = accountRepository.findById(order.getAccountId())
+                .orElseThrow(() -> new RuntimeException("User account not found"));
+
+        BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity))
+                .multiply(BigDecimal.valueOf(order.getContractSize()))
+                .setScale(4, RoundingMode.HALF_UP);
+
+        if (order.getDirection() == OrderDirection.BUY) {
+            // BUY: skida balance + commission
+            BigDecimal totalDebit = totalAmount.add(commission);
+            userAccount.setBalance(userAccount.getBalance().subtract(totalDebit));
+            userAccount.setAvailableBalance(userAccount.getAvailableBalance().subtract(totalDebit));
+        } else {
+            // SELL: dodaje balance, skida commission
+            userAccount.setBalance(userAccount.getBalance().add(totalAmount).subtract(commission));
+            userAccount.setAvailableBalance(userAccount.getAvailableBalance().add(totalAmount).subtract(commission));
+        }
+        accountRepository.save(userAccount);
+
+        // 6. Uplata provizije na račun banke
+        if (commission.compareTo(BigDecimal.ZERO) > 0) {
+            Account bankAccount = getBankAccount(userAccount.getCurrency().getId());
+            bankAccount.setBalance(bankAccount.getBalance().add(commission));
+            bankAccount.setAvailableBalance(bankAccount.getAvailableBalance().add(commission));
+            accountRepository.save(bankAccount);
+
+            createCommissionTransaction(order, bankAccount, commission);
+        }
     }
 
     /**
-     * Racuna proviziju za dati iznos i tip naloga.
-     *
-     * Specifikacija:
-     * - MARKET: max(14% * price, $7)
-     * - LIMIT:  max(24% * price, $12)
-     *
-     * @param totalPrice ukupna cena fill-a (price * quantity * contractSize)
-     * @param orderType  tip naloga (MARKET ili LIMIT)
-     * @return izracunata provizija
+     * Racuna proviziju: MARKET (max(0.14% * price, $7)), LIMIT (max(0.24% * price, $12))
      */
     private BigDecimal calculateCommission(BigDecimal totalPrice, OrderType orderType) {
-        /*
-         * TODO: Implementirati racunanje provizije
-         *
-         * Za MARKET (i bivse STOP naloge koji su postali MARKET):
-         *   return totalPrice.multiply(MARKET_COMMISSION_RATE).max(MARKET_COMMISSION_MIN);
-         *
-         * Za LIMIT (i bivse STOP_LIMIT naloge koji su postali LIMIT):
-         *   return totalPrice.multiply(LIMIT_COMMISSION_RATE).max(LIMIT_COMMISSION_MIN);
-         *
-         * Napomena: STOP i STOP_LIMIT se ovde ne pojavljuju jer ih je
-         * StopOrderActivationService vec pretvorio u MARKET/LIMIT.
-         * Ipak, za sigurnost, handle ih kao MARKET/LIMIT respektivno.
-         */
-        // TODO: implementirati racunanje provizije
-        log.debug("calculateCommission - returning ZERO (stub)");
-        return BigDecimal.ZERO;
+        if (orderType == OrderType.MARKET) {
+            return totalPrice.multiply(MARKET_COMMISSION_RATE).max(MARKET_COMMISSION_MIN);
+        } else {
+            return totalPrice.multiply(LIMIT_COMMISSION_RATE).max(LIMIT_COMMISSION_MIN);
+        }
     }
+
+    /**
+     * Pronalazi racun banke (Company ID = 3) u valuti naloga.
+     */
+    private Account getBankAccount(Long currencyId) {
+        return accountRepository.findAll().stream()
+                .filter(a -> a.getCompany() != null && a.getCompany().getId() == 3L)
+                .filter(a -> a.getCurrency().getId().equals(currencyId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Bank account for currency ID " + currencyId + " not found!"));
+    }
+    private void createCommissionTransaction(Order order, Account bankAccount, BigDecimal commission) {
+        Transaction bankTransaction = Transaction.builder()
+                .account(bankAccount)
+                .currency(bankAccount.getCurrency())
+                .description("Commission for Order #" + order.getId())
+                .credit(commission)
+                .debit(BigDecimal.ZERO)
+                .balanceAfter(bankAccount.getBalance())
+                .availableAfter(bankAccount.getAvailableBalance())
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        transactionRepository.save(bankTransaction);
+    }
+
 }
