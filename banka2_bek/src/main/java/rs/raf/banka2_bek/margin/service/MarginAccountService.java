@@ -3,6 +3,7 @@ package rs.raf.banka2_bek.margin.service;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -14,8 +15,10 @@ import rs.raf.banka2_bek.auth.model.User;
 import rs.raf.banka2_bek.auth.repository.UserRepository;
 import rs.raf.banka2_bek.client.repository.ClientRepository;
 import rs.raf.banka2_bek.margin.dto.CreateMarginAccountDto;
+import rs.raf.banka2_bek.margin.dto.MarginAccountCheckDto;
 import rs.raf.banka2_bek.margin.dto.MarginAccountDto;
 import rs.raf.banka2_bek.margin.dto.MarginTransactionDto;
+import rs.raf.banka2_bek.margin.event.MarginAccountBlockedEvent;
 import rs.raf.banka2_bek.margin.model.MarginAccount;
 import rs.raf.banka2_bek.margin.model.MarginAccountStatus;
 import rs.raf.banka2_bek.margin.model.MarginTransaction;
@@ -29,14 +32,14 @@ import java.util.List;
 
 /**
  * Servis za upravljanje margin racunima.
- *
+ * <p>
  * Specifikacija: Celina 3 - Margin racuni
- *
+ * <p>
  * Kljucne formule:
- *   initialMargin     = deposit / (1 - bankParticipation)
- *   loanValue          = initialMargin - deposit
- *   maintenanceMargin  = initialMargin * 0.5  (za akcije)
- *
+ * initialMargin     = deposit / (1 - bankParticipation)
+ * loanValue          = initialMargin - deposit
+ * maintenanceMargin  = initialMargin * 0.5  (za akcije)
+ * <p>
  * Margin call: ako initialMargin padne ispod maintenanceMargin, racun se blokira.
  */
 @Service
@@ -47,20 +50,24 @@ public class MarginAccountService {
     private final MarginAccountRepository marginAccountRepository;
     private final MarginTransactionRepository marginTransactionRepository;
     private final AccountRepository accountRepository;
-    private final UserRepository userRepository;
     private final ClientRepository clientRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
-    /** Podrazumevani procenat ucestva banke (50%) */
+    /**
+     * Podrazumevani procenat ucestva banke (50%)
+     */
     private static final BigDecimal DEFAULT_BANK_PARTICIPATION = new BigDecimal("0.50");
 
-    /** Faktor za izracunavanje maintenance margine (50% od initial za akcije) */
+    /**
+     * Faktor za izracunavanje maintenance margine (50% od initial za akcije)
+     */
     private static final BigDecimal MAINTENANCE_FACTOR = new BigDecimal("0.50");
 
     /**
      * Kreira novi margin racun za korisnika.
      *
      * @param userId ID korisnika koji kreira margin racun
-     * @param dto DTO sa accountId i initialDeposit
+     * @param dto    DTO sa accountId i initialDeposit
      * @return kreiran MarginAccountDto
      */
     @Transactional
@@ -177,22 +184,23 @@ public class MarginAccountService {
      */
     @Transactional
     public void deposit(Long marginAccountId, BigDecimal amount, Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated())
+            throw new IllegalStateException("Not authenticated.");
+
         if (amount == null || amount.compareTo(BigDecimal.ZERO) < 1)
             throw new IllegalArgumentException("Amount must be positive number.");
 
-        if (notClient(authentication)) throw new IllegalStateException("Access denied.");
-
-        User user = userRepository.findByEmail(authentication.getName()).orElseThrow(
-                () -> new EntityNotFoundException("Access denied.")
-        );
+        Long clientId = clientRepository.findByEmail(authentication.getName()).orElseThrow(
+                () -> new EntityNotFoundException("Only clients can deposit on margin accounts.")
+        ).getId();
 
         // 1. find MarginAccount by id
         MarginAccount account = marginAccountRepository.findById(marginAccountId)
                 .orElseThrow(() -> new EntityNotFoundException("Account not found with id: " + marginAccountId));
 
         // OWNERSHIP CHECK
-        if (!user.getId().equals(account.getUserId()))
-            throw new IllegalStateException("Access denied.");
+        if (!clientId.equals(account.getUserId()))
+            throw new IllegalStateException("You don't have access to this margin account.");
 
         // 2. increase initialMargin for the amount
         BigDecimal updatedInitialMargin = account.getInitialMargin().add(amount);
@@ -243,14 +251,16 @@ public class MarginAccountService {
      */
     @Transactional
     public void withdraw(Long marginAccountId, BigDecimal amount, Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated())
+            throw new IllegalStateException("Not authenticated.");
+
         if (amount == null || amount.compareTo(BigDecimal.ZERO) < 1)
             throw new IllegalArgumentException("Amount must be positive number.");
 
-        if (notClient(authentication)) throw new IllegalStateException("Access denied.");
 
-        User user = userRepository.findByEmail(authentication.getName()).orElseThrow(
-                () -> new IllegalStateException("Access denied.")
-        );
+        Long clientId = clientRepository.findByEmail(authentication.getName()).orElseThrow(
+                () -> new IllegalStateException("Only clients can withdraw from margin accounts.")
+        ).getId();
 
         // 1. find MarginAccount by marginAccountId, if it doesn't exist exception is thrown
         MarginAccount account = marginAccountRepository.findById(marginAccountId).orElseThrow(
@@ -258,8 +268,8 @@ public class MarginAccountService {
         );
 
         // CHECK ACCOUNT OWNERSHIP
-        if (!user.getId().equals(account.getUserId()))
-            throw new IllegalStateException("Access denied.");
+        if (!clientId.equals(account.getUserId()))
+            throw new IllegalStateException("You don't have access to this margin account.");
 
         // 2. not active accounts can't do withdraw
         if (!account.getStatus().equals(MarginAccountStatus.ACTIVE))
@@ -313,20 +323,32 @@ public class MarginAccountService {
 
         log.info("Running daily maintenance margin check...");
 
-        List<MarginAccount> activeAccounts = marginAccountRepository.findByStatus(MarginAccountStatus.ACTIVE);
-        int blockedCount = 0;
+        // get all about to be blocked accounts
+        List<MarginAccountCheckDto> accountsForBlocking = marginAccountRepository.findAccountsForMarginCheck(MarginAccountStatus.ACTIVE.toString());
 
-        for (MarginAccount account : activeAccounts) {
-            if (account.getInitialMargin().compareTo(account.getMaintenanceMargin()) < 0) {
-                account.setStatus(MarginAccountStatus.BLOCKED);
-                marginAccountRepository.save(account);
-                blockedCount++;
-                log.warn("MARGIN CALL: Account {} blocked. initialMargin={}, maintenanceMargin={}",
-                        account.getId(), account.getInitialMargin(), account.getMaintenanceMargin());
-            }
+        marginAccountRepository.blockAccountsWhereMaintenanceExceedsInitial(MarginAccountStatus.BLOCKED.toString());
+
+        for (MarginAccountCheckDto account : accountsForBlocking) {
+
+            // for mail sending logic listen for MarginAccountBlockedEvent publish
+            eventPublisher.publishEvent(
+                    new MarginAccountBlockedEvent(
+                            account.ownerEmail(),
+                            account.maintenanceMargin().toString(),
+                            account.initialMargin().toString(),
+                            account.calculateMaintenanceDeficit().toString()
+                    )
+            );
+
+            log.warn(
+                    "MARGIN CALL: Account {} blocked. initialMargin={}, maintenanceMargin={}",
+                    account.marginAccountId(),
+                    account.initialMargin(),
+                    account.maintenanceMargin()
+            );
         }
 
-        log.info("Daily maintenance margin check completed. Amount of blocked accounts : {}.", blockedCount);
+        log.info("Daily maintenance margin check completed. Amount of blocked accounts : {}.", accountsForBlocking.size());
 
     }
 
@@ -337,19 +359,19 @@ public class MarginAccountService {
      * @return lista transakcija sortirana od najnovije
      */
     public List<MarginTransactionDto> getTransactions(Long marginAccountId, Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated())
+            throw new IllegalStateException("Not authenticated.");
 
-        if (notClient(authentication)) throw new IllegalStateException("Access denied.");
-
-        User user = userRepository.findByEmail(authentication.getName()).orElseThrow(
-                () -> new IllegalStateException("Access denied.")
-        );
+        Long clientId = clientRepository.findByEmail(authentication.getName()).orElseThrow(
+                () -> new IllegalStateException("Only clients can get the list of margin transactions.")
+        ).getId();
 
         MarginAccount marginAccount = marginAccountRepository.findById(marginAccountId).orElseThrow(
                 () -> new EntityNotFoundException("Margin account with id: " + marginAccountId + " does not exist.")
         );
 
         // CHECK ACCOUNT OWNERSHIP
-        if (!marginAccount.getUserId().equals(user.getId())) throw new IllegalStateException("Access denied.");
+        if (!marginAccount.getUserId().equals(clientId)) throw new IllegalStateException("Access denied.");
 
         return marginTransactionRepository.findByMarginAccountIdOrderByCreatedAtDesc(marginAccountId)
                 .stream()
@@ -388,13 +410,5 @@ public class MarginAccountService {
                 .build();
     }
 
-
-    private boolean notClient(Authentication authentication) {
-        for (GrantedAuthority authority : authentication.getAuthorities()) {
-            if (authority.getAuthority() != null && authority.getAuthority().contains("CLIENT"))
-                return false;
-        }
-        return true;
-    }
 
 }

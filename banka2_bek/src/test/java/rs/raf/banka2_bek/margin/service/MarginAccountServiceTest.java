@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import rs.raf.banka2_bek.account.model.Account;
 import rs.raf.banka2_bek.account.model.AccountStatus;
 import rs.raf.banka2_bek.account.repository.AccountRepository;
+import rs.raf.banka2_bek.auth.repository.UserRepository;
 import rs.raf.banka2_bek.client.model.Client;
 import rs.raf.banka2_bek.client.repository.ClientRepository;
 import rs.raf.banka2_bek.margin.dto.CreateMarginAccountDto;
@@ -42,6 +43,7 @@ class MarginAccountServiceTest {
     private AccountRepository accountRepository;
     @Mock
     private ClientRepository clientRepository;
+
 
     private MarginAccountService marginAccountService;
 
