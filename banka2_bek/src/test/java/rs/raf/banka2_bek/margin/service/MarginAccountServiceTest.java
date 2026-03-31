@@ -295,7 +295,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.deposit(1L, null, auth))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Amount must be positive number.");
+                .hasMessage("Amount must be a positive number.");
     }
 
     @Test
@@ -305,7 +305,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.deposit(1L, BigDecimal.ZERO, auth))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Amount must be positive number.");
+                .hasMessage("Amount must be a positive number.");
     }
 
     @Test
@@ -315,7 +315,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.deposit(1L, new BigDecimal("-100"), auth))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Amount must be positive number.");
+                .hasMessage("Amount must be a positive number.");
     }
 
     @Test
@@ -325,7 +325,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.deposit(1L, new BigDecimal("100"), auth))
                 .isInstanceOf(EntityNotFoundException.class)
-                .hasMessageContaining("Only clients can deposit");
+                .hasMessageContaining("Only clients can deposit on margin accounts.");
     }
 
     @Test
@@ -351,7 +351,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.deposit(1L, new BigDecimal("100"), auth))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("You don't have access to this margin account.");
+                .hasMessageContaining("can deposit funds");
     }
 
     // ── withdraw() tests ───────────────────────────────────────────────────────
@@ -402,7 +402,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.withdraw(1L, null, auth))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Amount must be positive number.");
+                .hasMessage("Amount must be a positive number.");
     }
 
     @Test
@@ -412,7 +412,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.withdraw(1L, BigDecimal.ZERO, auth))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Amount must be positive number.");
+                .hasMessage("Amount must be a positive number.");
     }
 
     @Test
@@ -422,7 +422,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.withdraw(1L, new BigDecimal("-100"), auth))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Amount must be positive number.");
+                .hasMessage("Amount must be a positive number.");
     }
 
     @Test
@@ -432,7 +432,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.withdraw(1L, new BigDecimal("100"), auth))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Only clients can withdraw");
+                .hasMessageContaining("Only clients can withdraw from margin accounts.");
     }
 
     @Test
@@ -458,7 +458,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.withdraw(1L, new BigDecimal("100"), auth))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("You don't have access to this margin account.");
+                .hasMessageContaining("can withdraw funds");
     }
 
     @Test
@@ -639,7 +639,7 @@ class MarginAccountServiceTest {
 
         assertThatThrownBy(() -> marginAccountService.getTransactions(1L, auth))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Access denied.");
+                .hasMessageContaining("can access margin account transactions");
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
