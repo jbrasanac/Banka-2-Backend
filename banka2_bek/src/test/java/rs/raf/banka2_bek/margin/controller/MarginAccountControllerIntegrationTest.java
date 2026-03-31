@@ -36,6 +36,7 @@ import rs.raf.banka2_bek.margin.repository.MarginAccountRepository;
 import rs.raf.banka2_bek.margin.repository.MarginTransactionRepository;
 import rs.raf.banka2_bek.margin.model.MarginAccount;
 import rs.raf.banka2_bek.margin.model.MarginAccountStatus;
+import rs.raf.banka2_bek.margin.model.MarginTransactionType;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -307,6 +308,170 @@ class MarginAccountControllerIntegrationTest {
         assertThat(response.getBody()).contains("Only clients can view margin accounts.");
     }
 
+    // ── deposit() integration tests ────────────────────────────────────────────
+
+    @Test
+    void deposit_returnsOK_andUpdatesMarginAccountValues() {
+        Client client = createClient("deposit.client@test.com");
+        User user = createAuthUser(client.getEmail(), "CLIENT");
+        Employee employee = createEmployee("deposit.emp@test.com", "dep.emp");
+        Currency rsd = createCurrency("RSD", "Serbian Dinar", "RSD", "RS");
+        Account account = createAccount("777777777777777791", client, employee, rsd,
+                new BigDecimal("10000.00"), new BigDecimal("10000.00"));
+        MarginAccount marginAccount = createMarginAccount(account, client,
+                MarginAccountStatus.ACTIVE, new BigDecimal("10000.0000"), new BigDecimal("5000.0000"));
+
+        String payload = """
+                { "amount": 2000.00 }
+                """;
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                url("/margin-accounts/" + marginAccount.getId() + "/deposit"),
+                new HttpEntity<>(payload, jsonHeaders(jwtService.generateAccessToken(user))),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        entityManager.clear();
+        MarginAccount updated = marginAccountRepository.findById(marginAccount.getId()).orElseThrow();
+        assertThat(updated.getInitialMargin()).isEqualByComparingTo("12000.0000");
+        assertThat(updated.getMaintenanceMargin()).isEqualByComparingTo("6000.0000");
+        assertThat(marginTransactionRepository.count()).isEqualTo(1L);
+        assertThat(marginTransactionRepository.findAll().get(0).getType()).isEqualTo(MarginTransactionType.DEPOSIT);
+    }
+
+    @Test
+    void deposit_returnsOK_andActivatesBLOCKEDAccount() {
+        Client client = createClient("deposit.blocked@test.com");
+        User user = createAuthUser(client.getEmail(), "CLIENT");
+        Employee employee = createEmployee("deposit.blocked.emp@test.com", "dep.bl.emp");
+        Currency rsd = createCurrency("RSD", "Serbian Dinar", "RSD", "RS");
+        Account account = createAccount("777777777777777792", client, employee, rsd,
+                new BigDecimal("10000.00"), new BigDecimal("10000.00"));
+        MarginAccount marginAccount = createMarginAccount(account, client,
+                MarginAccountStatus.BLOCKED, new BigDecimal("10000.0000"), new BigDecimal("5000.0000"));
+
+        String payload = """
+                { "amount": 1000.00 }
+                """;
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                url("/margin-accounts/" + marginAccount.getId() + "/deposit"),
+                new HttpEntity<>(payload, jsonHeaders(jwtService.generateAccessToken(user))),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        entityManager.clear();
+        MarginAccount updated = marginAccountRepository.findById(marginAccount.getId()).orElseThrow();
+        assertThat(updated.getStatus()).isEqualTo(MarginAccountStatus.ACTIVE);
+    }
+
+    @Test
+    void deposit_returnsForbidden_whenMissingJwt() {
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                url("/margin-accounts/1/deposit"),
+                new HttpEntity<>("{\"amount\":100}", jsonHeaders(null)),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void deposit_returnsForbidden_forNonClientUser() {
+        User nonClient = createAuthUser("deposit.nonclient@test.com", "EMPLOYEE");
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                url("/margin-accounts/1/deposit"),
+                new HttpEntity<>("{\"amount\":100}", jsonHeaders(jwtService.generateAccessToken(nonClient))),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void deposit_returnsNotFound_whenMarginAccountNotFound() {
+        Client client = createClient("deposit.notfound@test.com");
+        User user = createAuthUser(client.getEmail(), "CLIENT");
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                url("/margin-accounts/99999/deposit"),
+                new HttpEntity<>("{\"amount\":100}", jsonHeaders(jwtService.generateAccessToken(user))),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).contains("99999");
+    }
+
+    @Test
+    void deposit_returnsForbidden_whenCallerIsNotOwner() {
+        Client owner = createClient("deposit.owner@test.com");
+        Client attacker = createClient("deposit.attacker@test.com");
+        User attackerUser = createAuthUser(attacker.getEmail(), "CLIENT");
+        Employee employee = createEmployee("deposit.own.emp@test.com", "dep.own.emp");
+        Currency rsd = createCurrency("RSD", "Serbian Dinar", "RSD", "RS");
+        Account account = createAccount("777777777777777793", owner, employee, rsd,
+                new BigDecimal("10000.00"), new BigDecimal("10000.00"));
+        MarginAccount marginAccount = createMarginAccount(account, owner,
+                MarginAccountStatus.ACTIVE, new BigDecimal("10000.0000"), new BigDecimal("5000.0000"));
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                url("/margin-accounts/" + marginAccount.getId() + "/deposit"),
+                new HttpEntity<>("{\"amount\":100}", jsonHeaders(jwtService.generateAccessToken(attackerUser))),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody()).contains("You don't have access to this margin account.");
+    }
+
+    @Test
+    void deposit_returnsBadRequest_whenAmountIsZero() {
+        Client client = createClient("deposit.zero@test.com");
+        User user = createAuthUser(client.getEmail(), "CLIENT");
+        Employee employee = createEmployee("deposit.zero.emp@test.com", "dep.zero.emp");
+        Currency rsd = createCurrency("RSD", "Serbian Dinar", "RSD", "RS");
+        Account account = createAccount("777777777777777794", client, employee, rsd,
+                new BigDecimal("10000.00"), new BigDecimal("10000.00"));
+        MarginAccount marginAccount = createMarginAccount(account, client,
+                MarginAccountStatus.ACTIVE, new BigDecimal("10000.0000"), new BigDecimal("5000.0000"));
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                url("/margin-accounts/" + marginAccount.getId() + "/deposit"),
+                new HttpEntity<>("{\"amount\":0}", jsonHeaders(jwtService.generateAccessToken(user))),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).contains("Amount must be positive number.");
+    }
+
+    @Test
+    void deposit_returnsBadRequest_whenAmountIsMissing() {
+        Client client = createClient("deposit.missing@test.com");
+        User user = createAuthUser(client.getEmail(), "CLIENT");
+        Employee employee = createEmployee("deposit.miss.emp@test.com", "dep.miss.emp");
+        Currency rsd = createCurrency("RSD", "Serbian Dinar", "RSD", "RS");
+        Account account = createAccount("777777777777777795", client, employee, rsd,
+                new BigDecimal("10000.00"), new BigDecimal("10000.00"));
+        MarginAccount marginAccount = createMarginAccount(account, client,
+                MarginAccountStatus.ACTIVE, new BigDecimal("10000.0000"), new BigDecimal("5000.0000"));
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                url("/margin-accounts/" + marginAccount.getId() + "/deposit"),
+                new HttpEntity<>("{}", jsonHeaders(jwtService.generateAccessToken(user))),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).contains("Amount must be positive number.");
+    }
+
     private String url(String path) {
         return "http://localhost:" + port + path;
     }
@@ -372,6 +537,21 @@ class MarginAccountControllerIntegrationTest {
                 .symbol(symbol)
                 .country(country)
                 .active(true)
+                .build());
+    }
+
+    private MarginAccount createMarginAccount(Account account, Client client,
+                                              MarginAccountStatus status,
+                                              BigDecimal initialMargin,
+                                              BigDecimal maintenanceMargin) {
+        return marginAccountRepository.save(MarginAccount.builder()
+                .account(account)
+                .userId(client.getId())
+                .initialMargin(initialMargin)
+                .loanValue(initialMargin.divide(new java.math.BigDecimal("2")))
+                .maintenanceMargin(maintenanceMargin)
+                .bankParticipation(new BigDecimal("0.50"))
+                .status(status)
                 .build());
     }
 

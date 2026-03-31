@@ -1,5 +1,6 @@
 package rs.raf.banka2_bek.margin.service;
 
+import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -7,6 +8,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.core.Authentication;
 import rs.raf.banka2_bek.account.model.Account;
 import rs.raf.banka2_bek.account.model.AccountStatus;
 import rs.raf.banka2_bek.account.repository.AccountRepository;
@@ -29,6 +31,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -212,6 +215,143 @@ class MarginAccountServiceTest {
                 .hasMessage("Insufficient available balance for initial margin deposit.");
     }
 
+    // ── deposit() tests ────────────────────────────────────────────────────────
+
+    @Test
+    void deposit_success_increasesInitialMarginAndRecalculatesMaintenanceMargin() {
+        Authentication auth = authenticatedAs("client@test.com");
+        Client client = Client.builder().id(10L).email("client@test.com").build();
+        MarginAccount account = activeMarginAccount(10L, "10000", "5000", MarginAccountStatus.ACTIVE);
+
+        when(clientRepository.findByEmail("client@test.com")).thenReturn(Optional.of(client));
+        when(marginAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+
+        marginAccountService.deposit(1L, new BigDecimal("2000"), auth);
+
+        assertThat(account.getInitialMargin()).isEqualByComparingTo("12000");
+        assertThat(account.getMaintenanceMargin()).isEqualByComparingTo("6000");
+
+        verify(marginAccountRepository).save(account);
+
+        ArgumentCaptor<MarginTransaction> txCaptor = ArgumentCaptor.forClass(MarginTransaction.class);
+        verify(marginTransactionRepository).save(txCaptor.capture());
+        assertThat(txCaptor.getValue().getType()).isEqualTo(MarginTransactionType.DEPOSIT);
+        assertThat(txCaptor.getValue().getAmount()).isEqualByComparingTo("2000");
+    }
+
+    @Test
+    void deposit_success_unblocksBLOCKEDAccount() {
+        Authentication auth = authenticatedAs("client@test.com");
+        Client client = Client.builder().id(10L).email("client@test.com").build();
+        MarginAccount account = activeMarginAccount(10L, "10000", "5000", MarginAccountStatus.BLOCKED);
+
+        when(clientRepository.findByEmail("client@test.com")).thenReturn(Optional.of(client));
+        when(marginAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+
+        marginAccountService.deposit(1L, new BigDecimal("2000"), auth);
+
+        assertThat(account.getStatus()).isEqualTo(MarginAccountStatus.ACTIVE);
+    }
+
+    @Test
+    void deposit_doesNotChangeStatus_whenAccountIsAlreadyActive() {
+        Authentication auth = authenticatedAs("client@test.com");
+        Client client = Client.builder().id(10L).email("client@test.com").build();
+        MarginAccount account = activeMarginAccount(10L, "10000", "5000", MarginAccountStatus.ACTIVE);
+
+        when(clientRepository.findByEmail("client@test.com")).thenReturn(Optional.of(client));
+        when(marginAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+
+        marginAccountService.deposit(1L, new BigDecimal("2000"), auth);
+
+        assertThat(account.getStatus()).isEqualTo(MarginAccountStatus.ACTIVE);
+    }
+
+    @Test
+    void deposit_throwsWhenAuthenticationIsNull() {
+        assertThatThrownBy(() -> marginAccountService.deposit(1L, new BigDecimal("100"), null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Not authenticated.");
+    }
+
+    @Test
+    void deposit_throwsWhenNotAuthenticated() {
+        Authentication auth = mock(Authentication.class);
+        when(auth.isAuthenticated()).thenReturn(false);
+
+        assertThatThrownBy(() -> marginAccountService.deposit(1L, new BigDecimal("100"), auth))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Not authenticated.");
+    }
+
+    @Test
+    void deposit_throwsWhenAmountIsNull() {
+        Authentication auth = mock(Authentication.class);
+        when(auth.isAuthenticated()).thenReturn(true);
+
+        assertThatThrownBy(() -> marginAccountService.deposit(1L, null, auth))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Amount must be positive number.");
+    }
+
+    @Test
+    void deposit_throwsWhenAmountIsZero() {
+        Authentication auth = mock(Authentication.class);
+        when(auth.isAuthenticated()).thenReturn(true);
+
+        assertThatThrownBy(() -> marginAccountService.deposit(1L, BigDecimal.ZERO, auth))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Amount must be positive number.");
+    }
+
+    @Test
+    void deposit_throwsWhenAmountIsNegative() {
+        Authentication auth = mock(Authentication.class);
+        when(auth.isAuthenticated()).thenReturn(true);
+
+        assertThatThrownBy(() -> marginAccountService.deposit(1L, new BigDecimal("-100"), auth))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Amount must be positive number.");
+    }
+
+    @Test
+    void deposit_throwsWhenClientNotFound() {
+        Authentication auth = authenticatedAs("unknown@test.com");
+        when(clientRepository.findByEmail("unknown@test.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> marginAccountService.deposit(1L, new BigDecimal("100"), auth))
+                .isInstanceOf(EntityNotFoundException.class)
+                .hasMessageContaining("Only clients can deposit");
+    }
+
+    @Test
+    void deposit_throwsWhenMarginAccountNotFound() {
+        Authentication auth = authenticatedAs("client@test.com");
+        Client client = Client.builder().id(10L).email("client@test.com").build();
+        when(clientRepository.findByEmail("client@test.com")).thenReturn(Optional.of(client));
+        when(marginAccountRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> marginAccountService.deposit(99L, new BigDecimal("100"), auth))
+                .isInstanceOf(EntityNotFoundException.class)
+                .hasMessageContaining("99");
+    }
+
+    @Test
+    void deposit_throwsWhenCallerIsNotOwner() {
+        Authentication auth = authenticatedAs("attacker@test.com");
+        Client attacker = Client.builder().id(20L).email("attacker@test.com").build();
+        MarginAccount account = activeMarginAccount(10L, "10000", "5000", MarginAccountStatus.ACTIVE);
+
+        when(clientRepository.findByEmail("attacker@test.com")).thenReturn(Optional.of(attacker));
+        when(marginAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> marginAccountService.deposit(1L, new BigDecimal("100"), auth))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("You don't have access to this margin account.");
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+
     private Account activeAccount(Long accountId, Long clientId, String available, String balance) {
         Client client = Client.builder().id(clientId).email("client@test.com").build();
         return Account.builder()
@@ -221,6 +361,25 @@ class MarginAccountServiceTest {
                 .availableBalance(new BigDecimal(available))
                 .balance(new BigDecimal(balance))
                 .build();
+    }
+
+    private MarginAccount activeMarginAccount(Long userId, String initialMargin,
+                                              String maintenanceMargin, MarginAccountStatus status) {
+        return MarginAccount.builder()
+                .id(1L)
+                .userId(userId)
+                .initialMargin(new BigDecimal(initialMargin))
+                .maintenanceMargin(new BigDecimal(maintenanceMargin))
+                .bankParticipation(new BigDecimal("0.50"))
+                .status(status)
+                .build();
+    }
+
+    private Authentication authenticatedAs(String email) {
+        Authentication auth = mock(Authentication.class);
+        when(auth.isAuthenticated()).thenReturn(true);
+        when(auth.getName()).thenReturn(email);
+        return auth;
     }
 }
 
