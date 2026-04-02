@@ -694,3 +694,385 @@ WHERE u.email = 'milica.nikolic@gmail.com' AND l.ticker = 'AMZN'
 AND NOT EXISTS (
     SELECT 1 FROM portfolios p WHERE p.user_id = u.id AND p.listing_id = l.id
 );
+
+
+-- ============================================================
+-- OPTIONS TEST SEED (Issue 21 - exercise)
+-- Dodati odmah posle ACTUARY INFO bloka
+-- ============================================================
+
+-- 1) CALL ITM - validna za uspešan exercise
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id,
+    'CALL',
+    180.0000,
+    0.2500,
+    5,
+    CURDATE() + INTERVAL 15 DAY,
+    100,
+    12.5000,
+    13.0000,
+    12.0000,
+    1200,
+    'AAPL_TEST_CALL_ITM',
+    NOW()
+FROM listings l
+WHERE l.ticker = 'AAPL'
+  AND NOT EXISTS (
+    SELECT 1 FROM options o WHERE o.ticker = 'AAPL_TEST_CALL_ITM'
+    );
+
+-- 2) CALL OTM - treba da vrati 400 (nije in-the-money)
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id,
+    'CALL',
+    210.0000,
+    0.2500,
+    5,
+    CURDATE() + INTERVAL 15 DAY,
+    100,
+    4.2000,
+    4.5000,
+    4.0000,
+    950,
+    'AAPL_TEST_CALL_OTM',
+    NOW()
+FROM listings l
+WHERE l.ticker = 'AAPL'
+  AND NOT EXISTS (
+    SELECT 1 FROM options o WHERE o.ticker = 'AAPL_TEST_CALL_OTM'
+    );
+
+-- 3) CALL expired - treba da vrati 400 (istekla)
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id,
+    'CALL',
+    180.0000,
+    0.2500,
+    5,
+    CURDATE() - INTERVAL 1 DAY,
+    100,
+    10.5000,
+    10.9000,
+    10.1000,
+    700,
+    'AAPL_TEST_CALL_EXPIRED',
+    NOW()
+FROM listings l
+WHERE l.ticker = 'AAPL'
+  AND NOT EXISTS (
+    SELECT 1 FROM options o WHERE o.ticker = 'AAPL_TEST_CALL_EXPIRED'
+    );
+
+-- 4) CALL ITM ali open_interest = 0 - treba da vrati 400
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id,
+    'CALL',
+    170.0000,
+    0.2500,
+    0,
+    CURDATE() + INTERVAL 15 DAY,
+    100,
+    15.2000,
+    15.7000,
+    14.8000,
+    300,
+    'AAPL_TEST_CALL_ZERO_OI',
+    NOW()
+FROM listings l
+WHERE l.ticker = 'AAPL'
+  AND NOT EXISTS (
+    SELECT 1 FROM options o WHERE o.ticker = 'AAPL_TEST_CALL_ZERO_OI'
+    );
+
+-- 5) PUT ITM - validna za uspešan exercise
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id,
+    'PUT',
+    430.0000,
+    0.2300,
+    4,
+    CURDATE() + INTERVAL 20 DAY,
+    100,
+    14.8000,
+    15.3000,
+    14.2000,
+    1100,
+    'MSFT_TEST_PUT_ITM',
+    NOW()
+FROM listings l
+WHERE l.ticker = 'MSFT'
+  AND NOT EXISTS (
+    SELECT 1 FROM options o WHERE o.ticker = 'MSFT_TEST_PUT_ITM'
+    );
+
+-- 6) PUT OTM - treba da vrati 400
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id,
+    'PUT',
+    390.0000,
+    0.2300,
+    4,
+    CURDATE() + INTERVAL 20 DAY,
+    100,
+    5.1000,
+    5.4000,
+    4.9000,
+    800,
+    'MSFT_TEST_PUT_OTM',
+    NOW()
+FROM listings l
+WHERE l.ticker = 'MSFT'
+  AND NOT EXISTS (
+    SELECT 1 FROM options o WHERE o.ticker = 'MSFT_TEST_PUT_OTM'
+    );
+
+DELETE FROM options
+WHERE ticker IN (
+                 'AAPL_TEST_CALL_ITM',
+                 'AAPL_TEST_CALL_OTM',
+                 'AAPL_TEST_CALL_EXPIRED',
+                 'AAPL_TEST_CALL_ZERO_OI',
+                 'MSFT_TEST_PUT_ITM',
+                 'MSFT_TEST_PUT_OTM'
+    );
+
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id, 'CALL', 180.0000, 0.2500, 5,
+    CURDATE() + INTERVAL 15 DAY, 100,
+    12.5000, 13.0000, 12.0000, 1200,
+    'AAPL_TEST_CALL_ITM', NOW()
+FROM listings l
+WHERE l.ticker = 'AAPL';
+
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id, 'CALL', 210.0000, 0.2500, 5,
+    CURDATE() + INTERVAL 15 DAY, 100,
+    4.2000, 4.5000, 4.0000, 950,
+    'AAPL_TEST_CALL_OTM', NOW()
+FROM listings l
+WHERE l.ticker = 'AAPL';
+
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id, 'CALL', 180.0000, 0.2500, 5,
+    CURDATE() - INTERVAL 1 DAY, 100,
+    10.5000, 10.9000, 10.1000, 700,
+    'AAPL_TEST_CALL_EXPIRED', NOW()
+FROM listings l
+WHERE l.ticker = 'AAPL';
+
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id, 'CALL', 170.0000, 0.2500, 0,
+    CURDATE() + INTERVAL 15 DAY, 100,
+    15.2000, 15.7000, 14.8000, 300,
+    'AAPL_TEST_CALL_ZERO_OI', NOW()
+FROM listings l
+WHERE l.ticker = 'AAPL';
+
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id, 'PUT', 430.0000, 0.2300, 4,
+    CURDATE() + INTERVAL 20 DAY, 100,
+    14.8000, 15.3000, 14.2000, 1100,
+    'MSFT_TEST_PUT_ITM', NOW()
+FROM listings l
+WHERE l.ticker = 'MSFT';
+
+INSERT INTO options (
+    stock_listing_id,
+    option_type,
+    strike_price,
+    implied_volatility,
+    open_interest,
+    settlement_date,
+    contract_size,
+    price,
+    ask,
+    bid,
+    volume,
+    ticker,
+    created_at
+)
+SELECT
+    l.id, 'PUT', 390.0000, 0.2300, 4,
+    CURDATE() + INTERVAL 20 DAY, 100,
+    5.1000, 5.4000, 4.9000, 800,
+    'MSFT_TEST_PUT_OTM', NOW()
+FROM listings l
+WHERE l.ticker = 'MSFT';
+
+SELECT id, ticker, option_type, strike_price, open_interest, settlement_date
+FROM options
+WHERE ticker IN (
+                 'AAPL_TEST_CALL_ITM',
+                 'AAPL_TEST_CALL_OTM',
+                 'AAPL_TEST_CALL_EXPIRED',
+                 'AAPL_TEST_CALL_ZERO_OI',
+                 'MSFT_TEST_PUT_ITM',
+                 'MSFT_TEST_PUT_OTM'
+    )
+ORDER BY id;

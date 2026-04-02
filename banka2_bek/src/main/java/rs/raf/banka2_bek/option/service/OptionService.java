@@ -4,8 +4,12 @@ import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import rs.raf.banka2_bek.actuary.repository.ActuaryInfoRepository;
+import rs.raf.banka2_bek.employee.model.Employee;
+import rs.raf.banka2_bek.employee.repository.EmployeeRepository;
 import rs.raf.banka2_bek.option.dto.OptionChainDto;
 import rs.raf.banka2_bek.option.dto.OptionDto;
 import rs.raf.banka2_bek.option.mapper.OptionMapper;
@@ -22,16 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Glavni servis za rad sa opcijama.
- *
- * Pruza CRUD operacije, option chain grupisanje i logiku za izvrsavanje (exercise) opcija.
- *
- * TODO: Za exerciseOption() potrebno je integrisati sa:
- *   - Portfolio/Account servisima (provera sredstava, azuriranje portfolija)
- *   - Transaction servisom (kreiranje zapisa o transakciji)
- *   - Ovi servisi jos nisu implementirani u Celina 3, pa koristiti placeholder
- */
 @Service
 @RequiredArgsConstructor
 public class OptionService {
@@ -40,27 +34,9 @@ public class OptionService {
 
     private final OptionRepository optionRepository;
     private final ListingRepository listingRepository;
+    private final EmployeeRepository employeeRepository;
+    private final ActuaryInfoRepository actuaryInfoRepository;
 
-    /**
-     * TODO: Vraca option chain za odredjenu akciju, grupisan po settlement datumu.
-     *
-     * Implementacija:
-     *   1. Proveriti da listing sa datim ID-jem postoji u ListingRepository
-     *      - Ako ne postoji, baciti EntityNotFoundException
-     *   2. Ucitati sve opcije za taj listing: optionRepository.findByStockListingId(listingId)
-     *   3. Grupisati opcije po settlementDate: Collectors.groupingBy(Option::getSettlementDate)
-     *   4. Za svaku grupu:
-     *      a. Razdvojiti na calls (optionType == CALL) i puts (optionType == PUT)
-     *      b. Sortirati calls i puts po strikePrice ascending
-     *      c. Mapirati u OptionDto putem OptionMapper
-     *      d. Kreirati OptionChainDto sa settlementDate, calls, puts, currentStockPrice
-     *   5. Sortirati rezultat po settlementDate ascending (najblizi datum prvi)
-     *   6. Vratiti listu OptionChainDto
-     *
-     * @param listingId ID Listing entiteta (akcije)
-     * @return lista OptionChainDto grupivisana po settlement datumu
-     * @throws EntityNotFoundException ako listing ne postoji
-     */
     public List<OptionChainDto> getOptionsForStock(Long listingId) {
         Listing listing = listingRepository.findById(listingId)
                 .orElseThrow(() -> new EntityNotFoundException("Listing id: " + listingId + " not found."));
@@ -97,20 +73,6 @@ public class OptionService {
                 .toList();
     }
 
-    /**
-     * TODO: Vraca detalje jedne opcije po ID-ju.
-     *
-     * Implementacija:
-     *   1. Ucitati opciju iz optionRepository.findById(optionId)
-     *      - Ako ne postoji, baciti EntityNotFoundException
-     *   2. Ucitati trenutnu cenu akcije iz option.getStockListing().getPrice()
-     *   3. Mapirati u OptionDto putem OptionMapper.toDto(option, currentPrice)
-     *   4. Vratiti DTO
-     *
-     * @param optionId ID opcije
-     * @return OptionDto sa svim detaljima
-     * @throws EntityNotFoundException ako opcija ne postoji
-     */
     public OptionDto getOptionById(Long optionId) {
         Option option = optionRepository.findById(optionId)
                 .orElseThrow(() -> new EntityNotFoundException("Option id: " + optionId + " not found."));
@@ -119,80 +81,63 @@ public class OptionService {
         return OptionMapper.toDto(option, currentPrice);
     }
 
-    /**
-     * TODO: Izvrsava (exercise) opciju — kupac koristi pravo iz opcije.
-     *
-     * PRAVILA:
-     * ========
-     * 1. AUTORIZACIJA: Samo korisnici sa ulogom ACTUARY (aktuar) mogu izvrsavati opcije.
-     *    - Proveriti rolu iz SecurityContext-a ili prosledjenog email-a.
-     *    - Ako korisnik nije aktuar, baciti AccessDeniedException ili IllegalStateException.
-     *
-     * 2. VALIDACIJA:
-     *    - Opcija mora postojati (EntityNotFoundException ako ne postoji)
-     *    - Opcija mora biti validna (settlementDate >= danas)
-     *      Ako je istekla, baciti IllegalStateException("Opcija je istekla")
-     *    - Opcija mora biti "in the money":
-     *      CALL: currentStockPrice > strikePrice
-     *      PUT:  currentStockPrice < strikePrice
-     *      Ako nije ITM, baciti IllegalStateException("Opcija nije in-the-money")
-     *
-     * 3. CALL EXERCISE LOGIKA:
-     *    - Kupac kupuje contractSize akcija po strikePrice
-     *    - Ukupan trosak: strikePrice * contractSize
-     *    - Proveriti da kupac ima dovoljno sredstava na racunu
-     *    - Skinuti sredstva sa racuna kupca
-     *    - Dodati akcije u portfolio kupca
-     *    - Kreirati transakciju (buy)
-     *
-     * 4. PUT EXERCISE LOGIKA:
-     *    - Kupac prodaje contractSize akcija po strikePrice
-     *    - Proveriti da kupac ima dovoljno akcija u portfoliju
-     *    - Ukloniti akcije iz portfolija kupca
-     *    - Dodati sredstva na racun kupca: strikePrice * contractSize
-     *    - Kreirati transakciju (sell)
-     *
-     * 5. POSLE IZVRSAVANJA:
-     *    - Smanjiti openInterest na opciji za 1
-     *    - Sacuvati promenu
-     *    - Loguj izvrsavanje
-     *
-     * NAPOMENA: Integracija sa Account/Portfolio/Transaction servisima
-     * ce biti implementirana kada ti servisi budu dostupni u Celini 3/4.
-     *
-     * @param optionId  ID opcije za izvrsavanje
-     * @param userEmail email korisnika koji izvrsava opciju
-     * @throws EntityNotFoundException ako opcija ne postoji
-     * @throws IllegalStateException   ako opcija nije validna za izvrsavanje
-     */
     @Transactional
     public void exerciseOption(Long optionId, String userEmail) {
+        ensureUserCanExerciseOptions(userEmail);
+
         Option option = optionRepository.findById(optionId)
                 .orElseThrow(() -> new EntityNotFoundException("Option id: " + optionId + " not found."));
 
-        // Provera isteka
         if (option.getSettlementDate().isBefore(LocalDate.now())) {
-            throw new IllegalStateException("Opcija je istekla (settlement: " + option.getSettlementDate() + ")");
+            throw new IllegalArgumentException(
+                    "Opcija je istekla (settlement: " + option.getSettlementDate() + ")"
+            );
         }
 
         BigDecimal currentPrice = option.getStockListing().getPrice();
-        BigDecimal strike = option.getStrikePrice();
+        BigDecimal strikePrice = option.getStrikePrice();
 
-        // Provera ITM
-        if (option.getOptionType() == OptionType.CALL && currentPrice.compareTo(strike) <= 0) {
-            throw new IllegalStateException("CALL opcija nije in-the-money (stock: " + currentPrice + ", strike: " + strike + ")");
-        }
-        if (option.getOptionType() == OptionType.PUT && currentPrice.compareTo(strike) >= 0) {
-            throw new IllegalStateException("PUT opcija nije in-the-money (stock: " + currentPrice + ", strike: " + strike + ")");
+        if (option.getOptionType() == OptionType.CALL && currentPrice.compareTo(strikePrice) <= 0) {
+            throw new IllegalArgumentException(
+                    "CALL opcija nije in-the-money (stock: " + currentPrice + ", strike: " + strikePrice + ")"
+            );
         }
 
-        // TODO: Integracija sa Account/Portfolio servisima
-        //   - CALL: proveriti sredstva, kupiti akcije po strike ceni
-        //   - PUT: proveriti portfolio, prodati akcije po strike ceni
+        if (option.getOptionType() == OptionType.PUT && currentPrice.compareTo(strikePrice) >= 0) {
+            throw new IllegalArgumentException(
+                    "PUT opcija nije in-the-money (stock: " + currentPrice + ", strike: " + strikePrice + ")"
+            );
+        }
+
+        if (option.getOpenInterest() <= 0) {
+            throw new IllegalArgumentException("Opcija nema otvorenih ugovora za izvrsavanje.");
+        }
 
         option.setOpenInterest(option.getOpenInterest() - 1);
         optionRepository.save(option);
 
-        log.info("Opcija {} izvrsena od strane {}", option.getTicker(), userEmail);
+        log.info(
+                "Opcija {} (id={}) izvrsena od strane {}. Novi openInterest={}",
+                option.getTicker(),
+                option.getId(),
+                userEmail,
+                option.getOpenInterest()
+        );
+    }
+
+    private void ensureUserCanExerciseOptions(String userEmail) {
+        Employee employee = employeeRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new AccessDeniedException("Samo aktuar moze da izvrsi opciju."));
+
+        if (!Boolean.TRUE.equals(employee.getActive())) {
+            throw new AccessDeniedException("Samo aktivan aktuar moze da izvrsi opciju.");
+        }
+
+        boolean adminEmployee = employee.getPermissions() != null && employee.getPermissions().contains("ADMIN");
+        boolean actuaryExists = actuaryInfoRepository.findByEmployeeId(employee.getId()).isPresent();
+
+        if (!adminEmployee && !actuaryExists) {
+            throw new AccessDeniedException("Samo aktuar moze da izvrsi opciju.");
+        }
     }
 }
