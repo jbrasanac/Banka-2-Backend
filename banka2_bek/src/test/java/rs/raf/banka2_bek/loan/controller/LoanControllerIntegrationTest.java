@@ -12,6 +12,7 @@ import org.springframework.http.*;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.DefaultResponseErrorHandler;
