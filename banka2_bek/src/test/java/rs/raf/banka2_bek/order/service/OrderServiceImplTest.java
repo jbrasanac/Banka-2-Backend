@@ -31,6 +31,7 @@ import rs.raf.banka2_bek.order.model.OrderStatus;
 import rs.raf.banka2_bek.order.model.OrderType;
 import rs.raf.banka2_bek.order.repository.OrderRepository;
 import rs.raf.banka2_bek.order.service.implementation.OrderServiceImpl;
+import rs.raf.banka2_bek.berza.service.ExchangeManagementService;
 import rs.raf.banka2_bek.stock.model.Listing;
 import rs.raf.banka2_bek.stock.model.ListingType;
 import rs.raf.banka2_bek.stock.repository.ListingRepository;
@@ -57,6 +58,7 @@ class OrderServiceImplTest {
     @Mock private ListingPriceService listingPriceService;
     @Mock private FundsVerificationService fundsVerificationService;
     @Mock private OrderStatusService orderStatusService;
+    @Mock private ExchangeManagementService exchangeManagementService;
 
     @InjectMocks
     private OrderServiceImpl orderService;

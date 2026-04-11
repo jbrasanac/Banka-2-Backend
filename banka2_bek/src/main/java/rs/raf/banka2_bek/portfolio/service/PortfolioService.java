@@ -89,6 +89,19 @@ public class PortfolioService {
             dto.setProfitPercent(profitPercent);
             dto.setPublicQuantity(p.getPublicQuantity());
             dto.setLastModified(p.getLastModified());
+
+            // Settlement date i ITM iz listinga
+            Optional<Listing> listingOpt = listingRepository.findById(p.getListingId());
+            if (listingOpt.isPresent()) {
+                Listing listing = listingOpt.get();
+                dto.setSettlementDate(listing.getSettlementDate());
+                // ITM: za opcije - averageBuyPrice (strike) vs currentPrice
+                // Put opcija: ITM ako currentPrice < strikePrice (averageBuyPrice)
+                // Call opcija: ITM ako currentPrice > strikePrice
+                // Za obicne hartije: currentPrice > averageBuyPrice
+                dto.setInTheMoney(currentPrice.compareTo(avgPrice) > 0);
+            }
+
             return dto;
         }).toList();
     }

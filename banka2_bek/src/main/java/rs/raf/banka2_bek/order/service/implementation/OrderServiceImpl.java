@@ -28,15 +28,12 @@ import rs.raf.banka2_bek.order.service.ListingPriceService;
 import rs.raf.banka2_bek.order.service.OrderService;
 import rs.raf.banka2_bek.order.service.OrderStatusService;
 import rs.raf.banka2_bek.order.service.OrderValidationService;
+import rs.raf.banka2_bek.berza.service.ExchangeManagementService;
 import rs.raf.banka2_bek.stock.model.Listing;
 import rs.raf.banka2_bek.stock.repository.ListingRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
-import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -52,13 +49,7 @@ public class OrderServiceImpl implements OrderService {
     private final ListingPriceService listingPriceService;
     private final FundsVerificationService fundsVerificationService;
     private final OrderStatusService orderStatusService;
-
-    // Exchange close times in UTC (16:00 EST = 21:00 UTC, 17:00 EST = 22:00 UTC)
-    private static final Map<String, LocalTime> EXCHANGE_CLOSE_TIMES_UTC = Map.of(
-            "NYSE", LocalTime.of(21, 0),
-            "NASDAQ", LocalTime.of(21, 0),
-            "CME", LocalTime.of(22, 0)
-    );
+    private final ExchangeManagementService exchangeManagementService;
 
     @Override
     @Transactional
@@ -254,18 +245,11 @@ public class OrderServiceImpl implements OrderService {
         String exchange = listing.getExchangeAcronym();
         if (exchange == null) return false;
 
-        LocalTime closeTime = EXCHANGE_CLOSE_TIMES_UTC.get(exchange.toUpperCase());
-        if (closeTime == null) return false;  // FOREX and unknown exchanges are never afterHours
-
-        LocalTime nowUtc = ZonedDateTime.now(ZoneOffset.UTC).toLocalTime();
-        LocalTime windowEnd = closeTime.plusHours(4);
-
-        if (windowEnd.isAfter(closeTime)) {
-            // Normal case: window does not cross midnight
-            return !nowUtc.isBefore(closeTime) && nowUtc.isBefore(windowEnd);
-        } else {
-            // Window crosses midnight (e.g., close at 22:00, window ends at 02:00)
-            return !nowUtc.isBefore(closeTime) || nowUtc.isBefore(windowEnd);
+        try {
+            return exchangeManagementService.isAfterHours(exchange);
+        } catch (Exception e) {
+            // Exchange not found or unknown — treat as not after-hours
+            return false;
         }
     }
     private String getSupervisorName() {

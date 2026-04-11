@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -23,4 +24,6 @@ public class PortfolioItemDto {
     private BigDecimal profitPercent;
     private Integer publicQuantity;
     private LocalDateTime lastModified;
+    private LocalDate settlementDate;
+    private Boolean inTheMoney;
 }

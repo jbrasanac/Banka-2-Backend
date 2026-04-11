@@ -2044,40 +2044,59 @@ VALUES
 -- client_id: 1=Stefan, 2=Milica, 3=Lazar, 4=Ana
 -- account_id: 1=Stefan RSD, 4=Milica RSD, 7=Lazar RSD, 10=Ana Youth RSD
 
-INSERT IGNORE INTO margin_accounts (bank_participation, created_at, initial_margin, loan_value,
+-- Margin accounts: only insert if user doesn't already have one
+INSERT INTO margin_accounts (bank_participation, created_at, initial_margin, loan_value,
                                     maintenance_margin, status, user_id, account_id)
-VALUES
-    -- Stefan (client_id=1): aktivan margin racun, linked to his RSD checking (account_id=1)
-    (0.4000, NOW(), 50000.0000, 20000.0000, 25000.0000, 'ACTIVE', 1, 1),
-    -- Milica (client_id=2): blokiran margin racun, linked to her RSD checking (account_id=4)
-    (0.5000, NOW(), 25000.0000, 12500.0000, 12500.0000, 'BLOCKED', 2, 4),
-    -- Lazar (client_id=3): aktivan margin racun, linked to his RSD checking (account_id=7)
-    (0.3000, NOW(), 40000.0000, 12000.0000, 20000.0000, 'ACTIVE', 3, 7),
-    -- Ana (client_id=4): aktivan margin racun, linked to her Youth RSD (account_id=10)
-    (0.4500, NOW(), 30000.0000, 13500.0000, 15000.0000, 'ACTIVE', 4, 10);
+SELECT 0.4000, NOW(), 50000.0000, 20000.0000, 25000.0000, 'ACTIVE', 1, 1
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM margin_accounts WHERE user_id = 1);
 
--- Margin transactions for Stefan's margin account
-INSERT IGNORE INTO margin_transactions (amount, created_at, description, type, margin_account_id)
-SELECT 50000.00, DATE_SUB(NOW(), INTERVAL 3 DAY), 'Inicijalna uplata', 'DEPOSIT', id
-FROM margin_accounts WHERE user_id = 1 LIMIT 1;
+INSERT INTO margin_accounts (bank_participation, created_at, initial_margin, loan_value,
+                                    maintenance_margin, status, user_id, account_id)
+SELECT 0.5000, NOW(), 25000.0000, 12500.0000, 12500.0000, 'BLOCKED', 2, 4
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM margin_accounts WHERE user_id = 2);
 
-INSERT IGNORE INTO margin_transactions (amount, created_at, description, type, margin_account_id)
-SELECT 20000.00, DATE_SUB(NOW(), INTERVAL 1 DAY), 'Isplata', 'WITHDRAWAL', id
-FROM margin_accounts WHERE user_id = 1 LIMIT 1;
+INSERT INTO margin_accounts (bank_participation, created_at, initial_margin, loan_value,
+                                    maintenance_margin, status, user_id, account_id)
+SELECT 0.3000, NOW(), 40000.0000, 12000.0000, 20000.0000, 'ACTIVE', 3, 7
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM margin_accounts WHERE user_id = 3);
+
+INSERT INTO margin_accounts (bank_participation, created_at, initial_margin, loan_value,
+                                    maintenance_margin, status, user_id, account_id)
+SELECT 0.4500, NOW(), 30000.0000, 13500.0000, 15000.0000, 'ACTIVE', 4, 10
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM margin_accounts WHERE user_id = 4);
+
+-- Margin transactions: only insert if account has no transactions yet
+INSERT INTO margin_transactions (amount, created_at, description, type, margin_account_id)
+SELECT 50000.00, DATE_SUB(NOW(), INTERVAL 3 DAY), 'Inicijalna uplata', 'DEPOSIT', ma.id
+FROM margin_accounts ma WHERE ma.user_id = 1
+AND NOT EXISTS (SELECT 1 FROM margin_transactions mt WHERE mt.margin_account_id = ma.id)
+LIMIT 1;
+
+INSERT INTO margin_transactions (amount, created_at, description, type, margin_account_id)
+SELECT 20000.00, DATE_SUB(NOW(), INTERVAL 1 DAY), 'Isplata', 'WITHDRAWAL', ma.id
+FROM margin_accounts ma WHERE ma.user_id = 1
+AND (SELECT COUNT(*) FROM margin_transactions mt WHERE mt.margin_account_id = ma.id) < 2
+LIMIT 1;
 
 -- Margin transactions for Lazar's margin account
-INSERT IGNORE INTO margin_transactions (amount, created_at, description, type, margin_account_id)
-SELECT 40000.00, DATE_SUB(NOW(), INTERVAL 5 DAY), 'Inicijalna uplata', 'DEPOSIT', id
-FROM margin_accounts WHERE user_id = 3 LIMIT 1;
+INSERT INTO margin_transactions (amount, created_at, description, type, margin_account_id)
+SELECT 40000.00, DATE_SUB(NOW(), INTERVAL 5 DAY), 'Inicijalna uplata', 'DEPOSIT', ma.id
+FROM margin_accounts ma WHERE ma.user_id = 3
+AND NOT EXISTS (SELECT 1 FROM margin_transactions mt WHERE mt.margin_account_id = ma.id)
+LIMIT 1;
 
-INSERT IGNORE INTO margin_transactions (amount, created_at, description, type, margin_account_id)
-SELECT 10000.00, DATE_SUB(NOW(), INTERVAL 2 DAY), 'Delimicna isplata', 'WITHDRAWAL', id
-FROM margin_accounts WHERE user_id = 3 LIMIT 1;
+INSERT INTO margin_transactions (amount, created_at, description, type, margin_account_id)
+SELECT 10000.00, DATE_SUB(NOW(), INTERVAL 2 DAY), 'Delimicna isplata', 'WITHDRAWAL', ma.id
+FROM margin_accounts ma WHERE ma.user_id = 3
+AND (SELECT COUNT(*) FROM margin_transactions mt WHERE mt.margin_account_id = ma.id) < 2
+LIMIT 1;
 
 -- Margin transactions for Ana's margin account
-INSERT IGNORE INTO margin_transactions (amount, created_at, description, type, margin_account_id)
-SELECT 30000.00, DATE_SUB(NOW(), INTERVAL 4 DAY), 'Inicijalna uplata', 'DEPOSIT', id
-FROM margin_accounts WHERE user_id = 4 LIMIT 1;
+INSERT INTO margin_transactions (amount, created_at, description, type, margin_account_id)
+SELECT 30000.00, DATE_SUB(NOW(), INTERVAL 4 DAY), 'Inicijalna uplata', 'DEPOSIT', ma.id
+FROM margin_accounts ma WHERE ma.user_id = 4
+AND NOT EXISTS (SELECT 1 FROM margin_transactions mt WHERE mt.margin_account_id = ma.id)
+LIMIT 1;
 
 -- ============================================================
 -- TAX RECORDS

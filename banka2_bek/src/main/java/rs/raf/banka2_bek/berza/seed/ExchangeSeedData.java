@@ -36,32 +36,42 @@ public class ExchangeSeedData implements ApplicationRunner {
                         .country("US").currency("USD").timeZone("America/New_York")
                         .openTime(LocalTime.of(9, 30)).closeTime(LocalTime.of(16, 0))
                         .preMarketOpenTime(LocalTime.of(4, 0)).postMarketCloseTime(LocalTime.of(20, 0))
+                        .testMode(true)
                         .build(),
                 Exchange.builder()
                         .name("NASDAQ").acronym("NASDAQ").micCode("XNAS")
                         .country("US").currency("USD").timeZone("America/New_York")
                         .openTime(LocalTime.of(9, 30)).closeTime(LocalTime.of(16, 0))
                         .preMarketOpenTime(LocalTime.of(4, 0)).postMarketCloseTime(LocalTime.of(20, 0))
+                        .testMode(true)
                         .build(),
                 Exchange.builder()
                         .name("Chicago Mercantile Exchange").acronym("CME").micCode("XCME")
                         .country("US").currency("USD").timeZone("America/Chicago")
                         .openTime(LocalTime.of(8, 30)).closeTime(LocalTime.of(15, 0))
+                        .postMarketCloseTime(LocalTime.of(19, 0))
+                        .testMode(true)
                         .build(),
                 Exchange.builder()
                         .name("London Stock Exchange").acronym("LSE").micCode("XLON")
                         .country("GB").currency("GBP").timeZone("Europe/London")
                         .openTime(LocalTime.of(8, 0)).closeTime(LocalTime.of(16, 30))
+                        .postMarketCloseTime(LocalTime.of(20, 0))
+                        .testMode(true)
                         .build(),
                 Exchange.builder()
                         .name("Deutsche Börse XETRA").acronym("XETRA").micCode("XETR")
                         .country("DE").currency("EUR").timeZone("Europe/Berlin")
                         .openTime(LocalTime.of(9, 0)).closeTime(LocalTime.of(17, 30))
+                        .postMarketCloseTime(LocalTime.of(21, 30))
+                        .testMode(true)
                         .build(),
                 Exchange.builder()
                         .name("Belgrade Stock Exchange").acronym("BELEX").micCode("XBEL")
                         .country("RS").currency("RSD").timeZone("Europe/Belgrade")
                         .openTime(LocalTime.of(9, 0)).closeTime(LocalTime.of(15, 0))
+                        .postMarketCloseTime(LocalTime.of(19, 0))
+                        .testMode(true)
                         .build()
         );
 
