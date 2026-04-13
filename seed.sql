@@ -2377,3 +2377,48 @@ VALUES
     (11, 0, 1, NULL, 1900.0000, 1, NOW(),
      'SELL', 0, NOW(), NULL, 0, 'MARKET', 190.0000,
      3, 3, 'PENDING', NULL, 4, 'CLIENT', 1);
+
+-- ============================================================
+-- PHASE 0: Fund reservation backfill + bank trading racuni
+-- ============================================================
+
+-- Backfill availableBalance za postojece racune (ako je 0 ili NULL, postavi = balance)
+UPDATE accounts SET available_balance = balance WHERE available_balance IS NULL OR available_balance = 0;
+
+-- Osiguraj da je reservedAmount 0 za sve postojece racune
+UPDATE accounts SET reserved_amount = 0 WHERE reserved_amount IS NULL;
+
+-- Postavi default accountCategory = 'CLIENT' za sve postojece racune.
+-- Napomena: Hibernate kreira MySQL ENUM kolonu sa abecedno sortiranim vrednostima,
+-- pa je prva vrednost 'BANK_TRADING' i postaje implicitni default kad seed inserti
+-- ne navedu account_category. Zato ovde forsirano postavljamo CLIENT svuda,
+-- pa onda oznacavamo bankine racune kao BANK_TRADING.
+UPDATE accounts SET account_category = 'CLIENT';
+
+-- Postojeci bankini racuni (company_id=3, Banka 2025 Tim 2) se markiraju kao BANK_TRADING.
+-- Izuzetak: poreski racun drzave (company_id=4) ostaje CLIENT.
+UPDATE accounts SET account_category = 'BANK_TRADING' WHERE company_id = 3;
+
+-- Novi bank trading racuni za order flow (RSD, USD, EUR)
+-- Koristi se company_id=3 (Banka 2025 Tim 2) i employee_id=1 jer schema to zahteva.
+INSERT IGNORE INTO accounts (account_number, account_type, account_subtype, currency_id,
+                             client_id, company_id, employee_id,
+                             balance, available_balance, reserved_amount, account_category,
+                             daily_limit, monthly_limit,
+                             daily_spending, monthly_spending,
+                             maintenance_fee, expiration_date, status, name, created_at)
+VALUES
+    ('999000000000000001', 'BUSINESS', 'STANDARD', 8, NULL, 3, 1,
+     500000000.0000, 500000000.0000, 0.0000, 'BANK_TRADING',
+     999999999.0000, 999999999.0000, 0.0000, 0.0000, 0.0000,
+     '2050-01-01', 'ACTIVE', 'Banka Trading RSD', NOW()),
+
+    ('999000000000000002', 'BUSINESS', 'STANDARD', 3, NULL, 3, 1,
+     5000000.0000, 5000000.0000, 0.0000, 'BANK_TRADING',
+     999999999.0000, 999999999.0000, 0.0000, 0.0000, 0.0000,
+     '2050-01-01', 'ACTIVE', 'Banka Trading USD', NOW()),
+
+    ('999000000000000003', 'BUSINESS', 'STANDARD', 1, NULL, 3, 1,
+     5000000.0000, 5000000.0000, 0.0000, 'BANK_TRADING',
+     999999999.0000, 999999999.0000, 0.0000, 0.0000, 0.0000,
+     '2050-01-01', 'ACTIVE', 'Banka Trading EUR', NOW());

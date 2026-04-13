@@ -67,6 +67,15 @@ public class Account {
     @Builder.Default
     private BigDecimal availableBalance = BigDecimal.ZERO;  // Raspoloživo stanje (balance - rezervisano)
 
+    @Column(nullable = false, precision = 19, scale = 4)
+    @Builder.Default
+    private BigDecimal reservedAmount = BigDecimal.ZERO;    // Rezervisano za pending/approved ordere i placanja
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    @Builder.Default
+    private AccountCategory accountCategory = AccountCategory.CLIENT;
+
     // Limiti 
 
     @Column(nullable = false, precision = 19, scale = 4)

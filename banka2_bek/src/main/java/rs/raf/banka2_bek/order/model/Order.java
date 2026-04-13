@@ -91,4 +91,21 @@ public class Order {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    // ── Rezervacija sredstava ─────────────────────────────────────────────
+    @Column(name = "reserved_account_id")
+    private Long reservedAccountId;
+
+    @Column(name = "reserved_amount", precision = 19, scale = 4)
+    private BigDecimal reservedAmount;
+
+    @Column(name = "reservation_released", nullable = false)
+    private boolean reservationReleased = false;
+
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
+
+    /** Kurs u trenutku rezervacije (listing currency -> account currency). */
+    @Column(name = "exchange_rate", precision = 19, scale = 6)
+    private BigDecimal exchangeRate;
 }

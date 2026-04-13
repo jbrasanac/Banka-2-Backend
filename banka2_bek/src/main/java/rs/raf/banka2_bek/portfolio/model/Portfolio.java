@@ -55,6 +55,10 @@ public class Portfolio {
     @Column(nullable = false)
     private Integer publicQuantity = 0;
 
+    /** Rezervisana kolicina (za pending SELL ordere). Default 0. */
+    @Column(nullable = false)
+    private Integer reservedQuantity = 0;
+
     /** Datum poslednje izmene. */
     @Column(nullable = false)
     private LocalDateTime lastModified;
@@ -63,5 +67,14 @@ public class Portfolio {
     @PreUpdate
     protected void onUpdate() {
         this.lastModified = LocalDateTime.now();
+    }
+
+    /**
+     * Kolicina koja je slobodna za novu prodaju (quantity minus reservedQuantity).
+     * Nije persistirano — izracunava se na osnovu postojecih polja.
+     */
+    @Transient
+    public Integer getAvailableQuantity() {
+        return quantity - (reservedQuantity == null ? 0 : reservedQuantity);
     }
 }
