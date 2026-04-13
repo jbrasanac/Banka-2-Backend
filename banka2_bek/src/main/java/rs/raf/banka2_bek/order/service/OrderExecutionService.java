@@ -22,6 +22,7 @@ import rs.raf.banka2_bek.transaction.repository.TransactionRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -55,9 +56,18 @@ public class OrderExecutionService {
     private final PortfolioRepository portfolioRepository;
     private final TransactionRepository transactionRepository;
     private final AonValidationService aonValidationService;
+    private final FundReservationService fundReservationService;
 
     @Value("${bank.registration-number}")
     private String bankRegistrationNumber;
+
+    /** Minimalan broj sekundi izmedju approval-a i prvog fill pokusaja (Phase 6). */
+    @Value("${orders.execution.initial-delay-seconds:60}")
+    private long initialDelaySeconds;
+
+    /** Dodatan delay za after-hours naloge (u sekundama). */
+    @Value("${orders.afterhours.delay-seconds:60}")
+    private long afterHoursDelaySeconds;
 
     /** Provizija za MARKET naloge: min(14% * price, $7) — spec: "koji iznos je manji" */
     private static final BigDecimal MARKET_COMMISSION_RATE = new BigDecimal("0.14");
@@ -66,9 +76,6 @@ public class OrderExecutionService {
     /** Provizija za LIMIT naloge: min(24% * price, $12) — spec: "koji iznos je manji" */
     private static final BigDecimal LIMIT_COMMISSION_RATE = new BigDecimal("0.24");
     private static final BigDecimal LIMIT_COMMISSION_MAX = new BigDecimal("12");
-
-    /** Dodatan delay po fill-u za after-hours naloge (u minutima) */
-    private static final int AFTER_HOURS_DELAY_MINUTES = 30;
 
     @Transactional
     public void executeOrders() {
@@ -83,6 +90,7 @@ public class OrderExecutionService {
 
         log.info("Starting execution cycle for {} orders.", executableOrders.size());
 
+        LocalDateTime now = LocalDateTime.now();
         for (Order order : executableOrders) {
             try {
                 // 3a. Provera settlement date-a (samo za futures/opcije gde postoji)
@@ -92,6 +100,12 @@ public class OrderExecutionService {
                     order.setStatus(OrderStatus.DECLINED);
                     order.setDone(true);
                     order.setLastModification(LocalDateTime.now());
+                    // Oslobadjanje rezervacije za auto-declined order
+                    try {
+                        releaseReservationSafe(order);
+                    } catch (Exception e) {
+                        log.warn("Failed to release reservation for auto-declined order #{}: {}", order.getId(), e.getMessage());
+                    }
                     orderRepository.save(order);
 
                     log.warn("Order #{} auto-declined: settlement date {} has passed",
@@ -99,12 +113,20 @@ public class OrderExecutionService {
                     continue;
                 }
 
-                // 3b. Provera after-hours delay
-                // Ako je after-hours, mora proci AFTER_HOURS_DELAY_MINUTES od poslednje promene
-                if (order.isAfterHours()) {
-                    LocalDateTime lastMod = order.getLastModification();
-                    if (lastMod != null && lastMod.plusMinutes(AFTER_HOURS_DELAY_MINUTES).isAfter(LocalDateTime.now())) {
-                        log.debug("Order #{} is after-hours, skipping until delay passes.", order.getId());
+                // 3b. Phase 6: Initial delay guard.
+                // Svaki APPROVED order mora da saceka `initialDelaySeconds` od approvedAt
+                // (ili createdAt ako approvedAt nije setovan) pre prvog fill pokusaja.
+                // After-hours nalozi dobijaju dodatni `afterHoursDelaySeconds`.
+                LocalDateTime referenceTime = order.getApprovedAt() != null
+                        ? order.getApprovedAt()
+                        : order.getCreatedAt();
+                if (referenceTime != null) {
+                    long requiredDelay = order.isAfterHours()
+                            ? initialDelaySeconds + afterHoursDelaySeconds
+                            : initialDelaySeconds;
+                    if (Duration.between(referenceTime, now).getSeconds() < requiredDelay) {
+                        log.debug("Order #{} not yet eligible for execution (needs {}s delay)",
+                                order.getId(), requiredDelay);
                         continue;
                     }
                 }
@@ -118,7 +140,7 @@ public class OrderExecutionService {
             }
         }
     }
-    private void executeSingleOrder(Order order) {
+    void executeSingleOrder(Order order) {
         // 1. Dohvatiti ažuriranu cenu listinga
         Listing listing = listingRepository.findById(order.getListing().getId())
                 .orElseThrow(() -> new RuntimeException("Listing not found for order #" + order.getId()));
@@ -143,6 +165,7 @@ public class OrderExecutionService {
             order.setDone(true);
             order.setStatus(OrderStatus.DONE);
             order.setLastModification(LocalDateTime.now());
+            releaseReservationSafe(order);
             orderRepository.save(order);
             return;
         }
@@ -165,15 +188,44 @@ public class OrderExecutionService {
                 .setScale(4, RoundingMode.HALF_UP);
 
         // Provizija se ne naplaćuje ako zaposleni trguje u ime banke
-        BigDecimal commission = "EMPLOYEE".equals(order.getUserRole()) ? BigDecimal.ZERO : calculateCommission(totalPrice, order.getOrderType());
+        BigDecimal commission = "EMPLOYEE".equals(order.getUserRole())
+                ? BigDecimal.ZERO
+                : calculateCommission(totalPrice, order.getOrderType());
 
-        // 5. Finansijske operacije — exception se propagira da @Transactional rollback-uje
+        // 5. Finansijske operacije preko FundReservationService (Phase 6 rewire).
+        //    Exception se propagira i @Transactional radi rollback.
         if (order.getDirection() == OrderDirection.BUY) {
-            updateAccountBalance(order, fillQuantity, executionPrice, commission);
+            // BUY: consumeForBuyFill skida realan fill price + commission sa balance-a
+            // i proporcionalno oslobadja deo rezervacije.
+            BigDecimal totalDebit = totalPrice.add(commission);
+            fundReservationService.consumeForBuyFill(order, fillQuantity, totalDebit);
+            creditBankCommission(order, commission);
             updatePortfolio(order, fillQuantity, executionPrice);
         } else {
-            updatePortfolio(order, -fillQuantity, executionPrice); // negativan qty za SELL
-            updateAccountBalance(order, fillQuantity, executionPrice, commission);
+            // SELL: consumeForSellFill skida qty iz portfolia i reservedQuantity.
+            // Novac (totalPrice - commission) ide na racun naloga (reservedAccountId),
+            // commission na bankin racun.
+            Portfolio portfolio = portfolioRepository.findByUserId(order.getUserId()).stream()
+                    .filter(p -> p.getListingId().equals(order.getListing().getId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Portfolio nije pronadjen za SELL order #" + order.getId()));
+
+            fundReservationService.consumeForSellFill(order, portfolio, fillQuantity);
+
+            Long receivingAccountId = order.getReservedAccountId() != null
+                    ? order.getReservedAccountId()
+                    : order.getAccountId();
+            Account receivingAccount = accountRepository.findForUpdateById(receivingAccountId)
+                    .orElseThrow(() -> new RuntimeException(
+                            "Receiving account not found for SELL order #" + order.getId()));
+
+            BigDecimal netRevenue = totalPrice.subtract(commission);
+            receivingAccount.setBalance(receivingAccount.getBalance().add(netRevenue));
+            receivingAccount.setAvailableBalance(receivingAccount.getAvailableBalance().add(netRevenue));
+            accountRepository.save(receivingAccount);
+
+            creditBankCommission(order, commission);
         }
         createFillTransaction(order, fillQuantity, executionPrice);
 
@@ -183,12 +235,64 @@ public class OrderExecutionService {
         if (order.getRemainingPortions() <= 0) {
             order.setDone(true);
             order.setStatus(OrderStatus.DONE);
+            // Ako je ostao visak rezervacije (npr. fill po nizoj ceni od approxPrice)
+            // vrati ga na availableBalance / availableQuantity.
+            releaseReservationSafe(order);
         }
         orderRepository.save(order);
 
         log.info("Order #{} filled {} of {} @ {} (remaining: {}, commission: {})",
                 order.getId(), fillQuantity, order.getQuantity(),
                 executionPrice, order.getRemainingPortions(), commission);
+    }
+
+    /**
+     * Idempotentno oslobadja rezervaciju za order (BUY: funds, SELL: portfolio qty).
+     * Loguje i proguta greske da jedan fail ne sruši execution petlju.
+     */
+    private void releaseReservationSafe(Order order) {
+        if (order.isReservationReleased()) {
+            return;
+        }
+        try {
+            if (order.getDirection() == OrderDirection.BUY) {
+                fundReservationService.releaseForBuy(order);
+            } else {
+                Portfolio portfolio = portfolioRepository.findByUserId(order.getUserId()).stream()
+                        .filter(p -> p.getListingId().equals(order.getListing().getId()))
+                        .findFirst()
+                        .orElse(null);
+                if (portfolio != null) {
+                    fundReservationService.releaseForSell(order, portfolio);
+                } else {
+                    order.setReservationReleased(true);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Release reservation failed for order #{}: {}", order.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Uplacuje proviziju na bankin racun u valuti order-a i kreira transakciju.
+     * No-op ako je commission = 0 (zaposleni).
+     */
+    private void creditBankCommission(Order order, BigDecimal commission) {
+        if (commission == null || commission.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        Long accountId = order.getReservedAccountId() != null
+                ? order.getReservedAccountId()
+                : order.getAccountId();
+        Account userAccount = accountRepository.findById(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found for commission routing"));
+
+        Account bankAccount = getBankAccount(userAccount.getCurrency().getId());
+        bankAccount.setBalance(bankAccount.getBalance().add(commission));
+        bankAccount.setAvailableBalance(bankAccount.getAvailableBalance().add(commission));
+        accountRepository.save(bankAccount);
+
+        createCommissionTransaction(order, bankAccount, commission);
     }
     private void createFillTransaction(Order order, int quantity, BigDecimal price) {
         Account account = accountRepository.findById(order.getAccountId())
@@ -257,37 +361,6 @@ public class OrderExecutionService {
             portfolioRepository.save(portfolio);
         } else {
             throw new IllegalStateException("Attempted to sell assets not present in portfolio for user: " + order.getUserId());
-        }
-    }
-
-    private void updateAccountBalance(Order order, int quantity, BigDecimal price, BigDecimal commission) {
-        Account userAccount = accountRepository.findById(order.getAccountId())
-                .orElseThrow(() -> new RuntimeException("User account not found"));
-
-        BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity))
-                .multiply(BigDecimal.valueOf(order.getContractSize()))
-                .setScale(4, RoundingMode.HALF_UP);
-
-        if (order.getDirection() == OrderDirection.BUY) {
-            // BUY: skida balance + commission
-            BigDecimal totalDebit = totalAmount.add(commission);
-            userAccount.setBalance(userAccount.getBalance().subtract(totalDebit));
-            userAccount.setAvailableBalance(userAccount.getAvailableBalance().subtract(totalDebit));
-        } else {
-            // SELL: dodaje balance, skida commission
-            userAccount.setBalance(userAccount.getBalance().add(totalAmount).subtract(commission));
-            userAccount.setAvailableBalance(userAccount.getAvailableBalance().add(totalAmount).subtract(commission));
-        }
-        accountRepository.save(userAccount);
-
-        // 6. Uplata provizije na račun banke
-        if (commission.compareTo(BigDecimal.ZERO) > 0) {
-            Account bankAccount = getBankAccount(userAccount.getCurrency().getId());
-            bankAccount.setBalance(bankAccount.getBalance().add(commission));
-            bankAccount.setAvailableBalance(bankAccount.getAvailableBalance().add(commission));
-            accountRepository.save(bankAccount);
-
-            createCommissionTransaction(order, bankAccount, commission);
         }
     }
 
