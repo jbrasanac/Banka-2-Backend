@@ -12,7 +12,6 @@ import rs.raf.banka2_bek.interbank.model.InterbankTransaction;
 import rs.raf.banka2_bek.interbank.model.InterbankTransactionStatus;
 import rs.raf.banka2_bek.interbank.protocol.*;
 import rs.raf.banka2_bek.interbank.repository.InterbankTransactionRepository;
-
 import java.time.LocalDateTime;
 import java.util.*;
 import rs.raf.banka2_bek.interbank.protocol.*;
@@ -197,8 +196,8 @@ public class TransactionExecutorService {
             Message<Transaction> envelope = new Message<>(key, MessageType.NEW_TX, tx);
             try {
                 messageService.recordOutbound(key, remoteRn,
-                        InterbankMessageService.MessageType.NEW_TX,
-                        objectMapper.writeValueAsString(envelope));
+                        MessageType.NEW_TX,
+                        objectMapper.writeValueAsString(envelope), tx.transactionId().id());
             } catch (JsonProcessingException e) {
                 throw new InterbankExceptions.InterbankProtocolException(
                         "Failed to serialize NEW_TX for routing " + remoteRn + ": " + e.getMessage());
@@ -240,10 +239,10 @@ public class TransactionExecutorService {
 
         if (allYes) {
             self.commitLocal(tx.transactionId());
-            sendPhase2Messages(remoteRns, MessageType.COMMIT_TX, new CommitTransaction(tx.transactionId()));
+            sendPhase2Messages(remoteRns, MessageType.COMMIT_TX, new CommitTransaction(tx.transactionId()), tx.transactionId().id());
         } else {
             self.rollbackLocal(tx.transactionId());
-            sendPhase2Messages(remoteRns, MessageType.ROLLBACK_TX, new RollbackTransaction(tx.transactionId()));
+            sendPhase2Messages(remoteRns, MessageType.ROLLBACK_TX, new RollbackTransaction(tx.transactionId()), tx.transactionId().id());
         }
     }
 
@@ -305,15 +304,15 @@ public class TransactionExecutorService {
 
     /** Logs and immediately fires phase-2 messages (COMMIT_TX or ROLLBACK_TX) to all remote banks.
      *  Delivery failures stay PENDING for the retry scheduler. */
-    private <T> void sendPhase2Messages(Set<Integer> remoteRns, MessageType type, T body) {
-        InterbankMessageService.MessageType localType =
-                InterbankMessageService.MessageType.valueOf(type.name());
+    private <T> void sendPhase2Messages(Set<Integer> remoteRns, MessageType type, T body, String transactionId) {
+        MessageType localType = MessageType.valueOf(type.name());
+
         for (int remoteRn : remoteRns) {
             IdempotenceKey key = messageService.generateKey();
             Message<T> envelope = new Message<>(key, type, body);
             try {
                 messageService.recordOutbound(key, remoteRn, localType,
-                        objectMapper.writeValueAsString(envelope));
+                        objectMapper.writeValueAsString(envelope), transactionId);
             } catch (JsonProcessingException e) {
                 throw new InterbankExceptions.InterbankProtocolException(
                         "Failed to serialize " + type + " for routing " + remoteRn + ": " + e.getMessage());

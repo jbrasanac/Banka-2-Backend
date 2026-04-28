@@ -58,7 +58,6 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
 public class InterbankMessage {
 
     @Id
@@ -118,4 +117,5 @@ public class InterbankMessage {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
 }
