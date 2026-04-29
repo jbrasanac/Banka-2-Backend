@@ -304,13 +304,12 @@ public class TransactionExecutorService {
     /** Logs and immediately fires phase-2 messages (COMMIT_TX or ROLLBACK_TX) to all remote banks.
      *  Delivery failures stay PENDING for the retry scheduler. */
     private <T> void sendPhase2Messages(Set<Integer> remoteRns, MessageType type, T body, String transactionId) {
-        MessageType localType = MessageType.valueOf(type.name());
 
         for (int remoteRn : remoteRns) {
             IdempotenceKey key = messageService.generateKey();
             Message<T> envelope = new Message<>(key, type, body);
             try {
-                messageService.recordOutbound(key, remoteRn, localType,
+                messageService.recordOutbound(key, remoteRn, type,
                         objectMapper.writeValueAsString(envelope), transactionId);
             } catch (JsonProcessingException e) {
                 throw new InterbankExceptions.InterbankProtocolException(

@@ -1,6 +1,7 @@
 package rs.raf.banka2_bek.interbank.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -8,8 +9,6 @@ import rs.raf.banka2_bek.interbank.config.InterbankProperties;
 import rs.raf.banka2_bek.interbank.protocol.*;
 import rs.raf.banka2_bek.interbank.service.InterbankMessageService;
 import rs.raf.banka2_bek.interbank.service.TransactionExecutorService;
-import tools.jackson.databind.ObjectMapper;
-
 import java.util.Optional;
 
 
@@ -98,7 +97,7 @@ public class InterbankInboundController {
 
         IdempotenceKey idempotenceKey = objectMapper.convertValue(envelope.get("idempotenceKey"), IdempotenceKey.class);
         MessageType messageType = objectMapper.convertValue(envelope.get("messageType"), MessageType.class);
-        JsonNode messageNode = envelope.get("messageType");
+        JsonNode messageNode = envelope.get("message");
 
         if (idempotenceKey.routingNumber() != partnerBank.getRoutingNumber())
             return ResponseEntity.status(401).build();

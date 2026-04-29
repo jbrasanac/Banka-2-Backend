@@ -112,18 +112,19 @@ public class InterbankMessageService {
 
         repository.save(
                 InterbankMessage.builder()
-                .direction(InterbankMessageDirection.INBOUND)
-                .status(InterbankMessageStatus.INBOUND)
-                .senderRoutingNumber(key.routingNumber())
-                .locallyGeneratedKey(key.locallyGeneratedKey())
-                .messageType(messageType)
-                .requestBody(requestBody)
-                .responseBody(responseBody)
-                .httpStatus(httpStatus)
-                .peerRoutingNumber(key.routingNumber())
-                .createdAt(LocalDateTime.now())
-                .lastAttemptAt(LocalDateTime.now())
-                .retryCount(0).build()
+                        .transactionId(transactionId)
+                        .direction(InterbankMessageDirection.INBOUND)
+                        .status(InterbankMessageStatus.INBOUND)
+                        .senderRoutingNumber(key.routingNumber())
+                        .locallyGeneratedKey(key.locallyGeneratedKey())
+                        .messageType(messageType)
+                        .requestBody(requestBody)
+                        .responseBody(responseBody)
+                        .httpStatus(httpStatus)
+                        .peerRoutingNumber(key.routingNumber())
+                        .createdAt(LocalDateTime.now())
+                        .lastAttemptAt(LocalDateTime.now())
+                        .retryCount(0).build()
         );
 
     }
@@ -151,17 +152,17 @@ public class InterbankMessageService {
 
         return repository.save(
                 InterbankMessage.builder()
-                .direction(InterbankMessageDirection.OUTBOUND)
-                .status(InterbankMessageStatus.PENDING)
-                .senderRoutingNumber(key.routingNumber())
-                .locallyGeneratedKey(key.locallyGeneratedKey())
-                .messageType(type)
-                .requestBody(body)
-                .transactionId(transactionId)
-                .peerRoutingNumber(targetRouting)
-                .createdAt(LocalDateTime.now())
-                .lastAttemptAt(LocalDateTime.now())
-                .retryCount(0).build()
+                    .direction(InterbankMessageDirection.OUTBOUND)
+                    .status(InterbankMessageStatus.PENDING)
+                    .senderRoutingNumber(key.routingNumber())
+                    .locallyGeneratedKey(key.locallyGeneratedKey())
+                    .messageType(type)
+                    .requestBody(body)
+                    .transactionId(transactionId)
+                    .peerRoutingNumber(targetRouting)
+                    .createdAt(LocalDateTime.now())
+                    .lastAttemptAt(LocalDateTime.now())
+                    .retryCount(0).build()
         );
     }
 
