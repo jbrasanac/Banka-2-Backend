@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import rs.raf.banka2_bek.account.repository.AccountRepository;
 import rs.raf.banka2_bek.interbank.exception.InterbankExceptions;
 import rs.raf.banka2_bek.interbank.model.InterbankTransaction;
 import rs.raf.banka2_bek.interbank.model.InterbankTransactionStatus;
@@ -15,6 +16,7 @@ import rs.raf.banka2_bek.interbank.repository.InterbankTransactionRepository;
 import java.time.LocalDateTime;
 import java.util.*;
 import rs.raf.banka2_bek.interbank.protocol.*;
+import rs.raf.banka2_bek.portfolio.repository.PortfolioRepository;
 
 import java.util.List;
 
@@ -137,6 +139,9 @@ public class TransactionExecutorService {
     private final BankRoutingService routing;
     private final InterbankTransactionRepository txRepo;
     private final ObjectMapper objectMapper;
+    private final AccountRepository accountRepository;
+    private final PortfolioRepository portfolioRepository;
+    private final InterbankReservationApplier reservationApplier;
 
     /**
      * §2.8.5: self-proxy so that @Transactional on prepareLocal/commitLocal/rollbackLocal
