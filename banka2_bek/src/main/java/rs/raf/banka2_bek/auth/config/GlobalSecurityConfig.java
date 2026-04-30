@@ -102,6 +102,8 @@ public class GlobalSecurityConfig  {
                         //       zameniti permitAll sa custom matcher-om koji preskace JWT.
                         .requestMatchers("/interbank/**", "/negotiations/**",
                                 "/public-stock", "/user/*/**").permitAll()
+                        // Arbitro asistent — svi autentifikovani korisnici (klijenti + zaposleni)
+                        .requestMatchers("/assistant/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .formLogin(AbstractHttpConfigurer::disable)
